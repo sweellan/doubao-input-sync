@@ -6,6 +6,8 @@
 
 这是一个非官方工具，只负责桥接输入结果，不隶属于豆包或其输入法产品团队。
 
+先打个预防针：这更像一个实用主义的小工具，而不是打磨完整的正式产品。我也不是专业开发者，安装过程和边缘情况可能还会有点糙 🙈。很多时候，最省心的方式反而是直接交给你的 coding agent 帮你跑和微调。
+
 English documentation: [README.md](README.md)
 
 ## 这个项目解决什么问题
@@ -26,6 +28,7 @@ English documentation: [README.md](README.md)
 - Python 端只用标准库，没有额外依赖
 - 手机不在局域网时，可临时通过 tunnel 做公网测试
 - 当一批稳定文本被捕捉并同步后，界面会轻微闪一下做提示
+- 如果公网 tunnel 下 SSE 重连不稳定，会自动退回轮询兜底
 
 ## 工作方式
 
@@ -137,11 +140,15 @@ python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smo
 ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 ```
 
+现在手机页里也可以直接在界面上改这个等待时间。
+
 ## 数据隔离
 
 别人 `clone` 下去以后，默认不会和你的数据存档互相打架。
 
 原因是当前状态和历史都只保存在各自本地进程的内存里。不同机器、不同本地实例天然隔离。只有在多个客户端故意连到同一个 relay server、并且还使用同一个 `room_id` 时，数据才会混到一起。
+
+手机页里也有一个 `归档后自动清空` 选项。你如果想每次捕捉后一键进入下一轮输入，就把它打开；如果更想人工确认，就关掉，继续手动点清空。
 
 ## macOS 权限
 

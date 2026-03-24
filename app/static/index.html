@@ -25,6 +25,15 @@
         </div>
 
         <div class="card">
+          <label for="archive-idle-input">Capture Wait (seconds)</label>
+          <div class="inline-row">
+            <input id="archive-idle-input" type="number" min="0.5" step="0.1" value="2.4">
+            <button id="save-settings-button" type="button">保存</button>
+          </div>
+          <p class="hint" id="settings-status">可按输入法节奏调大或调小。</p>
+        </div>
+
+        <div class="card">
           <div class="status-row">
             <span class="status-chip" id="connection-status">连接中</span>
             <span id="version-badge">version 0</span>
@@ -43,6 +52,10 @@
         <textarea id="mobile-editor" placeholder="把豆包输入法的结果持续输入在这里"></textarea>
         <div class="inline-row actions">
           <button id="clear-button" type="button">清空</button>
+          <label class="toggle-label" for="auto-clear-toggle">
+            <input id="auto-clear-toggle" type="checkbox">
+            <span>归档后自动清空</span>
+          </label>
           <span id="save-state" class="hint">待输入，自动同步中</span>
         </div>
       </section>

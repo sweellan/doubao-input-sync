@@ -6,6 +6,8 @@ Turn phone-side text input into desktop text insertion.
 
 This is an unofficial utility and is not affiliated with Doubao or its input method product team.
 
+Friendly disclaimer: this repo was built as a practical personal tool, not as polished production software. I am not a professional developer, so installation and edge cases may still be a little rough 🙈. In practice, the easiest path is often to let an AI coding agent help you run or tweak it.
+
 Chinese documentation: [README.zh-CN.md](README.zh-CN.md)
 
 ## Why This Exists
@@ -26,6 +28,7 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 - Zero Python dependencies beyond the standard library
 - Temporary public testing via tunnel tools if phone and desktop are not on the same LAN
 - Subtle visual flash when a settled batch is captured and synced
+- Polling fallback when SSE reconnect is flaky over a public tunnel
 
 ## How It Works
 
@@ -137,11 +140,15 @@ Tune the settle window if your input method revises text in multiple passes:
 ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 ```
 
+The mobile page also lets you change the capture wait time in the UI.
+
 ## Data Isolation
 
 Clones do not conflict with each other by default.
 
 Each local process keeps its own in-memory state, so separate users who clone and run the project on their own machines get fully isolated archives. Data only mixes when multiple clients intentionally talk to the same running relay server and use the same `room_id`.
+
+The mobile page also includes an `Auto clear after archive` option. Leave it off if you prefer to review text before clearing, or turn it on if you want the input box to reset itself after each settled batch.
 
 ## macOS Permissions
 

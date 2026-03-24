@@ -3,18 +3,27 @@
     roomId: "doubao",
     role: "landing",
     draftSaveTimer: null,
+    retryTimer: null,
     lastVersion: 0,
     lastHistoryCount: 0,
     eventSource: null,
     flashTimer: null,
+    reconnectTimer: null,
+    pollTimer: null,
+    mobileHydrated: false,
+    pendingText: null,
   };
 
   const roomInput = document.getElementById("room-input");
   const reconnectButton = document.getElementById("reconnect-button");
+  const archiveIdleInput = document.getElementById("archive-idle-input");
+  const saveSettingsButton = document.getElementById("save-settings-button");
+  const settingsStatus = document.getElementById("settings-status");
   const mobilePanel = document.getElementById("mobile-panel");
   const pcPanel = document.getElementById("pc-panel");
   const mobileEditor = document.getElementById("mobile-editor");
   const clearButton = document.getElementById("clear-button");
+  const autoClearToggle = document.getElementById("auto-clear-toggle");
   const saveState = document.getElementById("save-state");
   const output = document.getElementById("pc-output");
   const copyButton = document.getElementById("copy-button");
@@ -28,6 +37,7 @@
   const historyList = document.getElementById("history-list");
   const syncFlash = document.getElementById("sync-flash");
   const archiveHint = document.getElementById("archive-hint");
+  const autoClearStoragePrefix = "doubao-input-sync:auto-clear:";
 
   function inferRoleFromPath() {
     const parts = window.location.pathname.split("/").filter(Boolean);
@@ -66,6 +76,18 @@
     pcPanel.hidden = false;
   }
 
+  function autoClearStorageKey() {
+    return `${autoClearStoragePrefix}${state.roomId}`;
+  }
+
+  function loadLocalPreferences() {
+    autoClearToggle.checked = window.localStorage.getItem(autoClearStorageKey()) === "1";
+  }
+
+  function persistLocalPreferences() {
+    window.localStorage.setItem(autoClearStorageKey(), autoClearToggle.checked ? "1" : "0");
+  }
+
   function triggerFlash(message) {
     if (!syncFlash) {
       return;
@@ -92,17 +114,25 @@
     versionBadge.textContent = `version ${payload.version}`;
     updatedAt.textContent = payload.updated_at ? `updated at: ${payload.updated_at}` : "尚未收到内容";
     sourceLine.textContent = `source: ${payload.source || "-"}`;
+    if (payload.settings && payload.settings.archive_idle_seconds) {
+      archiveIdleInput.value = payload.settings.archive_idle_seconds;
+      archiveHint.textContent = `输入停顿约 ${payload.settings.archive_idle_seconds} 秒后自动入档`;
+    }
     if (state.role !== "mobile") {
       output.textContent = payload.text || "等待手机端输入…";
     }
-    if (state.role === "mobile" && document.activeElement !== mobileEditor) {
+    if (state.role === "mobile" && !state.mobileHydrated && document.activeElement !== mobileEditor) {
       mobileEditor.value = payload.text || "";
+      state.mobileHydrated = true;
     }
     renderHistory(payload.history || []);
 
     if (nextHistoryCount > previousHistoryCount) {
-      saveState.textContent = "已捕捉并同步";
+      saveState.textContent = autoClearToggle.checked ? "已捕捉并同步，已自动清空" : "已捕捉并同步";
       triggerFlash("已捕捉并同步一批文字");
+      if (state.role === "mobile" && autoClearToggle.checked) {
+        mobileEditor.value = "";
+      }
       return;
     }
 
@@ -170,25 +200,95 @@
     const payload = await response.json();
     if (payload.archive_idle_seconds) {
       archiveHint.textContent = `输入停顿约 ${payload.archive_idle_seconds} 秒后自动入档`;
+      archiveIdleInput.value = payload.archive_idle_seconds;
     }
   }
 
   async function pushDraft(text) {
     saveState.textContent = "同步中…";
-    const response = await fetch("/api/update", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        room_id: state.roomId,
-        text,
-        source: "mobile-web",
-      }),
-    });
-    const payload = await response.json();
-    renderRoomState(payload);
-    saveState.textContent = "已同步";
+    state.pendingText = text;
+    try {
+      const response = await fetch("/api/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          room_id: state.roomId,
+          text,
+          source: "mobile-web",
+        }),
+      });
+      const payload = await response.json();
+      renderRoomState(payload);
+      state.pendingText = null;
+      saveState.textContent = "已同步";
+    } catch (error) {
+      saveState.textContent = "网络中断，自动重试中…";
+      scheduleDraftRetry();
+    }
+  }
+
+  function scheduleDraftRetry() {
+    if (state.retryTimer || state.pendingText === null) {
+      return;
+    }
+    state.retryTimer = window.setTimeout(function () {
+      state.retryTimer = null;
+      if (state.pendingText !== null) {
+        pushDraft(state.pendingText);
+      }
+    }, 1200);
+  }
+
+  async function saveSettings() {
+    settingsStatus.textContent = "保存中…";
+    try {
+      const response = await fetch("/api/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          room_id: state.roomId,
+          archive_idle_seconds: archiveIdleInput.value,
+        }),
+      });
+      const payload = await response.json();
+      renderRoomState(payload);
+      settingsStatus.textContent = "已保存";
+    } catch (error) {
+      settingsStatus.textContent = "保存失败，请重试";
+    }
+  }
+
+  function scheduleReconnect() {
+    if (state.reconnectTimer) {
+      return;
+    }
+    state.reconnectTimer = window.setTimeout(function () {
+      state.reconnectTimer = null;
+      connectStream();
+    }, 1800);
+  }
+
+  function ensurePolling() {
+    if (state.pollTimer) {
+      return;
+    }
+    state.pollTimer = window.setInterval(function () {
+      fetchState().catch(function () {
+        connectionStatus.textContent = "已断开，轮询重试中";
+      });
+    }, 3000);
+  }
+
+  function stopPolling() {
+    if (!state.pollTimer) {
+      return;
+    }
+    window.clearInterval(state.pollTimer);
+    state.pollTimer = null;
   }
 
   function connectStream() {
@@ -202,10 +302,17 @@
 
     eventSource.addEventListener("open", function () {
       connectionStatus.textContent = "已连接";
+      stopPolling();
     });
 
     eventSource.addEventListener("error", function () {
       connectionStatus.textContent = "已断开，自动重连中";
+      if (state.eventSource) {
+        state.eventSource.close();
+        state.eventSource = null;
+      }
+      ensurePolling();
+      scheduleReconnect();
     });
 
     eventSource.addEventListener("room_state", function (event) {
@@ -217,6 +324,7 @@
   function rebuildPath() {
     const nextRoom = roomInput.value.trim() || "doubao";
     const prefix = state.role === "pc" ? "/pc/" : "/mobile/";
+    persistLocalPreferences();
     if (state.role === "landing") {
       window.location.href = `/pc/${encodeURIComponent(nextRoom)}`;
       return;
@@ -227,6 +335,8 @@
   function bindEvents() {
     reconnectButton.addEventListener("click", rebuildPath);
     refreshButton.addEventListener("click", fetchState);
+    saveSettingsButton.addEventListener("click", saveSettings);
+    autoClearToggle.addEventListener("change", persistLocalPreferences);
 
     copyButton.addEventListener("click", async function () {
       const value = output.textContent === "等待手机端输入…" ? "" : output.textContent;
@@ -256,6 +366,7 @@
   inferRoleFromPath();
   setRoleView();
   roomInput.value = state.roomId;
+  loadLocalPreferences();
   bindEvents();
   fetchState();
   fetchServerInfo();

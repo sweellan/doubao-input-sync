@@ -99,6 +99,19 @@ label,
   color: var(--muted);
 }
 
+.toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.toggle-label input {
+  width: auto;
+  margin: 0;
+}
+
 input,
 textarea,
 button,

@@ -66,6 +66,7 @@ class RoomState:
     version: int = 0
     updated_at: str = ""
     source: str = ""
+    archive_idle_seconds: float = ARCHIVE_IDLE_SECONDS
     history: List[ArchiveEntry] = field(default_factory=list)
 
     def payload(self) -> Dict[str, object]:
@@ -75,6 +76,9 @@ class RoomState:
             "version": self.version,
             "updated_at": self.updated_at,
             "source": self.source,
+            "settings": {
+                "archive_idle_seconds": self.archive_idle_seconds,
+            },
             "history": [entry.payload() for entry in self.history],
         }
 
@@ -85,6 +89,7 @@ class RoomState:
             version=self.version,
             updated_at=self.updated_at,
             source=self.source,
+            archive_idle_seconds=self.archive_idle_seconds,
             history=[
                 ArchiveEntry(
                     archive_id=entry.archive_id,
@@ -106,22 +111,23 @@ class RoomStore:
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._archive_timers: Dict[str, threading.Timer] = {}
         self._archive_ids: Dict[str, int] = {}
-        self._archive_idle_seconds = archive_idle_seconds
+        self._default_archive_idle_seconds = archive_idle_seconds
+
+    def _ensure_room(self, room_id: str) -> RoomState:
+        room = self._rooms.get(room_id)
+        if room is None:
+            room = RoomState(room_id=room_id, archive_idle_seconds=self._default_archive_idle_seconds)
+            self._rooms[room_id] = room
+        return room
 
     def get(self, room_id: str) -> RoomState:
         with self._lock:
-            room = self._rooms.get(room_id)
-            if room is None:
-                room = RoomState(room_id=room_id)
-                self._rooms[room_id] = room
+            room = self._ensure_room(room_id)
             return room.clone()
 
     def update(self, room_id: str, text: str, source: str) -> RoomState:
         with self._lock:
-            room = self._rooms.get(room_id)
-            if room is None:
-                room = RoomState(room_id=room_id)
-                self._rooms[room_id] = room
+            room = self._ensure_room(room_id)
             previous_timer = self._archive_timers.pop(room_id, None)
             if previous_timer is not None:
                 previous_timer.cancel()
@@ -132,7 +138,7 @@ class RoomStore:
             version = room.version
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
-            timer = threading.Timer(self._archive_idle_seconds, self._archive_if_idle, args=(room_id, version))
+            timer = threading.Timer(room.archive_idle_seconds, self._archive_if_idle, args=(room_id, version))
             timer.daemon = True
             self._archive_timers[room_id] = timer
 
@@ -157,6 +163,18 @@ class RoomStore:
                 watchers.remove(watcher)
             if not watchers:
                 self._subscribers.pop(room_id, None)
+
+    def update_settings(self, room_id: str, archive_idle_seconds: float) -> RoomState:
+        with self._lock:
+            room = self._ensure_room(room_id)
+            room.archive_idle_seconds = archive_idle_seconds
+            payload = room.payload()
+            subscribers = list(self._subscribers.get(room_id, []))
+
+        for subscriber in subscribers:
+            subscriber.put(payload)
+
+        return room.clone()
 
     def _archive_if_idle(self, room_id: str, expected_version: int) -> None:
         with self._lock:
@@ -257,6 +275,10 @@ class RelayHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/settings":
+            self._handle_settings_update()
+            return
+
         if parsed.path != "/api/update":
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -277,6 +299,25 @@ class RelayHandler(BaseHTTPRequestHandler):
 
         room = self.store.update(room_id=room_id, text=text, source=source)
         self._send_json(room.payload(), status=HTTPStatus.CREATED)
+
+    def _handle_settings_update(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length) or b"{}")
+        room_id = (payload.get("room_id") or self.default_room).strip()
+        raw_archive_idle_seconds = payload.get("archive_idle_seconds")
+
+        if not room_id:
+            self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        try:
+            archive_idle_seconds = parse_archive_idle_seconds(str(raw_archive_idle_seconds))
+        except (TypeError, ValueError):
+            self._send_json({"error": "archive_idle_seconds must be a number >= 0.5"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        room = self.store.update_settings(room_id=room_id, archive_idle_seconds=archive_idle_seconds)
+        self._send_json(room.payload(), status=HTTPStatus.OK)
 
     def _room_id_from_query(self, query: str) -> str:
         params = parse_qs(query)
