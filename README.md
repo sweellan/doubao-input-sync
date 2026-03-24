@@ -56,6 +56,10 @@ scripts/
   run_local_server.sh
   run_autopaste_local.sh
   run_tunnelmole.sh
+  run_helper_daemon.sh
+  install_launch_agent.sh
+  uninstall_launch_agent.sh
+  launch_agent_status.sh
   mac_paste_helper.py
   smoke_test.py
 docs/
@@ -216,6 +220,26 @@ For quick demos, `tunnelmole` is still fine. For daily use, a named `cloudflared
 ## Remote Relay Mode
 
 If the phone input page already lives on a remote Linux relay and your Mac only needs to consume that relay over Tailscale, see [docs/REMOTE_TAILSCALE_RELAY.md](docs/REMOTE_TAILSCALE_RELAY.md).
+
+## Running Without An Open Terminal
+
+If you start the helper directly from Terminal, that Terminal session must stay alive.
+
+For a persistent macOS setup, install the user LaunchAgent once:
+
+```bash
+SERVER_URL="http://100.69.170.35:18765/doubao" \
+ROOM_ID="testroom" \
+MODE="paste" \
+./scripts/install_launch_agent.sh
+```
+
+Useful follow-up commands:
+
+```bash
+./scripts/launch_agent_status.sh
+./scripts/uninstall_launch_agent.sh
+```
 
 ## macOS Permissions
 

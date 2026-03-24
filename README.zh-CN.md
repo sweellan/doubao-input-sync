@@ -56,6 +56,10 @@ scripts/
   run_local_server.sh
   run_autopaste_local.sh
   run_tunnelmole.sh
+  run_helper_daemon.sh
+  install_launch_agent.sh
+  uninstall_launch_agent.sh
+  launch_agent_status.sh
   mac_paste_helper.py
   smoke_test.py
 docs/
@@ -217,6 +221,26 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 ## 远端 relay 模式
 
 如果手机输入页已经放在远端 Linux relay 上，而这台 Mac 只需要通过 Tailscale 去消费远端 relay，请看 [docs/REMOTE_TAILSCALE_RELAY.md](docs/REMOTE_TAILSCALE_RELAY.md)。
+
+## 不开 Terminal 也能跑
+
+如果你是直接在 Terminal 里执行 helper，那这个 Terminal 窗口必须一直活着。
+
+更适合长期使用的方式，是给当前用户安装一个 macOS LaunchAgent：
+
+```bash
+SERVER_URL="http://100.69.170.35:18765/doubao" \
+ROOM_ID="testroom" \
+MODE="paste" \
+./scripts/install_launch_agent.sh
+```
+
+后续常用命令：
+
+```bash
+./scripts/launch_agent_status.sh
+./scripts/uninstall_launch_agent.sh
+```
 
 ## macOS 权限
 
