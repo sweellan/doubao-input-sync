@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -14,9 +15,27 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 
 
-def fetch_state(server_url: str, room_id: str) -> dict:
+def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -> dict:
     query = urlencode({"room_id": room_id})
-    with urlopen(f"{server_url.rstrip('/')}/api/state?{query}", timeout=3) as response:
+    url = f"{server_url.rstrip('/')}/api/state?{query}"
+
+    curl_proc = subprocess.run(
+        [
+            "curl",
+            "-fsS",
+            "--max-time",
+            str(request_timeout_seconds),
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if curl_proc.returncode == 0:
+        return json.loads(curl_proc.stdout)
+
+    # Fallback to urllib in case curl is unavailable or the environment differs.
+    with urlopen(url, timeout=request_timeout_seconds) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -41,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--server-url", default="http://127.0.0.1:8765")
     parser.add_argument("--room-id", default="doubao")
     parser.add_argument("--interval-seconds", type=float, default=0.5)
+    parser.add_argument("--request-timeout-seconds", type=float, default=8.0)
     parser.add_argument("--mode", choices=["clipboard", "paste"], default="clipboard")
     parser.add_argument(
         "--trigger",
@@ -63,11 +83,12 @@ def main() -> int:
 
     while True:
         try:
-            payload = fetch_state(args.server_url, args.room_id)
+            payload = fetch_state(args.server_url, args.room_id, args.request_timeout_seconds)
             connection_refused_count = 0
-        except URLError as exc:
+        except (URLError, socket.timeout) as exc:
             connection_refused_count += 1
-            record = {"status": "retrying", "reason": str(exc.reason), "server_url": args.server_url}
+            reason = str(getattr(exc, "reason", exc))
+            record = {"status": "retrying", "reason": reason, "server_url": args.server_url}
             if connection_refused_count == 1:
                 record["hint"] = (
                     "relay server is not reachable; start it with "

@@ -15,7 +15,7 @@ MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"
 ARCHIVE_IDLE_SECONDS_VALUE="${ARCHIVE_IDLE_SECONDS:-5.0}"
 
-SERVER_URL="http://127.0.0.1:${PORT}"
+SERVER_URL="${SERVER_URL:-http://127.0.0.1:${PORT}}"
 STARTED_SERVER=0
 SERVER_PID=""
 
@@ -30,17 +30,27 @@ trap cleanup EXIT INT TERM
 
 cd "$PROJECT_ROOT"
 
+IS_LOCAL_SERVER_URL=0
+if [[ "$SERVER_URL" == "http://127.0.0.1:${PORT}" || "$SERVER_URL" == "http://localhost:${PORT}" ]]; then
+  IS_LOCAL_SERVER_URL=1
+fi
+
 if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
-  echo "No relay server detected on ${SERVER_URL}, starting one locally..."
-  python3 app/server.py --host 0.0.0.0 --port "$PORT" --default-room "$ROOM_ID" --archive-idle-seconds "$ARCHIVE_IDLE_SECONDS_VALUE" &
-  SERVER_PID=$!
-  STARTED_SERVER=1
-  for _ in {1..40}; do
-    if curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.25
-  done
+  if [[ "$IS_LOCAL_SERVER_URL" == "1" ]]; then
+    echo "No relay server detected on ${SERVER_URL}, starting one locally..."
+    python3 app/server.py --host 0.0.0.0 --port "$PORT" --default-room "$ROOM_ID" --archive-idle-seconds "$ARCHIVE_IDLE_SECONDS_VALUE" &
+    SERVER_PID=$!
+    STARTED_SERVER=1
+    for _ in {1..40}; do
+      if curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.25
+    done
+  else
+    echo "Remote relay server is not reachable at ${SERVER_URL}" >&2
+    exit 1
+  fi
 fi
 
 if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
@@ -49,6 +59,7 @@ if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
 fi
 
 echo "Auto paste helper is watching ${SERVER_URL} room=${ROOM_ID} mode=${MODE} trigger=${TRIGGER} archive_idle_seconds=${ARCHIVE_IDLE_SECONDS_VALUE}"
+if [[ "$IS_LOCAL_SERVER_URL" == "1" ]]; then
 echo "Phone page: ${SERVER_URL/127.0.0.1/$(python3 - <<'PY'
 import socket
 s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -61,6 +72,9 @@ finally:
     s.close()
 PY
 )}/mobile/${ROOM_ID}"
+else
+echo "Remote phone page base should be managed by the remote relay setup."
+fi
 
 python3 scripts/mac_paste_helper.py \
   --server-url "$SERVER_URL" \
