@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
-ARCHIVE_IDLE_SECONDS = float(os.environ.get("ARCHIVE_IDLE_SECONDS", "5.0"))
+ARCHIVE_IDLE_SECONDS = float(os.environ.get("ARCHIVE_IDLE_SECONDS", "2.0"))
 MAX_HISTORY_ITEMS = 50
 
 

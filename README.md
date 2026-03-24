@@ -22,7 +22,7 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 ## Features
 
 - Auto-sync while typing, no explicit send button
-- Auto-capture only after the text stops changing for about 5 seconds by default
+- Auto-capture only after the text stops changing for about 2 seconds by default
 - Random pairing code by default instead of a shared hard-coded room name
 - Strong 1 phone + 1 desktop slot matching per room, with conflict warning
 - Desktop history list with per-item copy actions
