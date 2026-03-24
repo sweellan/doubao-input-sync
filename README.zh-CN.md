@@ -58,6 +58,8 @@ scripts/
   run_tunnelmole.sh
   mac_paste_helper.py
   smoke_test.py
+docs/
+  REMOTE_TAILSCALE_RELAY.md
 ```
 
 ## 快速开始
@@ -175,6 +177,10 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 - 自己准备一个小 VPS / 反向代理做长期转发
 
 如果只是临时演示，`tunnelmole` 还够用；如果想日常稳定用，下一步最值得做的是 `cloudflared + launchd`。
+
+## 远端 relay 模式
+
+如果手机输入页已经放在远端 Linux relay 上，而这台 Mac 只需要通过 Tailscale 去消费远端 relay，请看 [docs/REMOTE_TAILSCALE_RELAY.md](docs/REMOTE_TAILSCALE_RELAY.md)。
 
 ## macOS 权限
 

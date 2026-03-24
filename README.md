@@ -58,6 +58,8 @@ scripts/
   run_tunnelmole.sh
   mac_paste_helper.py
   smoke_test.py
+docs/
+  REMOTE_TAILSCALE_RELAY.md
 ```
 
 ## Quick Start
@@ -175,6 +177,10 @@ The more stable long-running options are:
 - your own small VPS or reverse proxy if you want full control
 
 For quick demos, `tunnelmole` is still fine. For daily use, a named `cloudflared` tunnel would be the most practical next step.
+
+## Remote Relay Mode
+
+If the phone input page already lives on a remote Linux relay and your Mac only needs to consume that relay over Tailscale, see [docs/REMOTE_TAILSCALE_RELAY.md](docs/REMOTE_TAILSCALE_RELAY.md).
 
 ## macOS Permissions
 

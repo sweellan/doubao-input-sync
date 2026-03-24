@@ -69,6 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="archive waits for a settled history item; live reacts to every new version.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        default=True,
+        help="Ignore the latest existing version/archive at startup and only react to newer content.",
+    )
     parser.add_argument("--stop-after-updates", type=int, default=0)
     return parser
 
@@ -80,6 +86,7 @@ def main() -> int:
     applied_updates = 0
     connection_refused_count = 0
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    startup_seeded = False
 
     while True:
         try:
@@ -103,6 +110,14 @@ def main() -> int:
         text = payload.get("text", "")
         history = payload.get("history") or []
         trigger_ref = None
+
+        if args.skip_existing and not startup_seeded:
+            last_version = max(last_version, version)
+            if history:
+                last_archive_id = max(last_archive_id, history[-1].get("archive_id", 0))
+            startup_seeded = True
+            time.sleep(args.interval_seconds)
+            continue
 
         if args.trigger == "archive":
             if not history:
