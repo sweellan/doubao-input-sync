@@ -149,6 +149,23 @@ button:hover {
   color: #7e3418;
 }
 
+.sync-flash {
+  opacity: 0;
+  transform: translateY(-3px);
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(202, 91, 45, 0.12);
+  color: #8a3b1d;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.sync-flash.is-active {
+  opacity: 1;
+  transform: translateY(0);
+  animation: syncPulse 900ms ease;
+}
+
 .output-box {
   min-height: 240px;
   padding: 18px;
@@ -201,6 +218,18 @@ code {
   background: rgba(30, 27, 24, 0.06);
   padding: 2px 6px;
   border-radius: 8px;
+}
+
+@keyframes syncPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(202, 91, 45, 0.22);
+  }
+  45% {
+    box-shadow: 0 0 0 10px rgba(202, 91, 45, 0.04);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(202, 91, 45, 0);
+  }
 }
 
 @media (max-width: 720px) {

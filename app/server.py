@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import socket
 import threading
@@ -19,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
-ARCHIVE_IDLE_SECONDS = 1.2
+ARCHIVE_IDLE_SECONDS = float(os.environ.get("ARCHIVE_IDLE_SECONDS", "2.4"))
 MAX_HISTORY_ITEMS = 50
 
 
@@ -36,6 +37,13 @@ def detect_local_ip() -> str:
         return "127.0.0.1"
     finally:
         sock.close()
+
+
+def parse_archive_idle_seconds(raw_value: str) -> float:
+    value = float(raw_value)
+    if value < 0.5:
+        raise ValueError("archive idle seconds must be >= 0.5")
+    return value
 
 
 @dataclass
@@ -92,12 +100,13 @@ class RoomState:
 
 
 class RoomStore:
-    def __init__(self) -> None:
+    def __init__(self, archive_idle_seconds: float) -> None:
         self._lock = threading.Lock()
         self._rooms: Dict[str, RoomState] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._archive_timers: Dict[str, threading.Timer] = {}
         self._archive_ids: Dict[str, int] = {}
+        self._archive_idle_seconds = archive_idle_seconds
 
     def get(self, room_id: str) -> RoomState:
         with self._lock:
@@ -123,7 +132,7 @@ class RoomStore:
             version = room.version
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
-            timer = threading.Timer(ARCHIVE_IDLE_SECONDS, self._archive_if_idle, args=(room_id, version))
+            timer = threading.Timer(self._archive_idle_seconds, self._archive_if_idle, args=(room_id, version))
             timer.daemon = True
             self._archive_timers[room_id] = timer
 
@@ -217,6 +226,7 @@ class RelayHandler(BaseHTTPRequestHandler):
                     "default_room": self.default_room,
                     "local_ip": self.local_ip,
                     "local_base_url": f"http://{self.local_ip}:{self.server.server_address[1]}",
+                    "archive_idle_seconds": self.server.archive_idle_seconds,  # type: ignore[attr-defined]
                 }
             )
             return
@@ -324,20 +334,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--default-room", default="doubao")
+    parser.add_argument("--archive-idle-seconds", type=parse_archive_idle_seconds, default=ARCHIVE_IDLE_SECONDS)
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     server = ThreadingHTTPServer((args.host, args.port), RelayHandler)
-    server.store = RoomStore()  # type: ignore[attr-defined]
+    server.store = RoomStore(archive_idle_seconds=args.archive_idle_seconds)  # type: ignore[attr-defined]
     server.default_room = args.default_room  # type: ignore[attr-defined]
     server.local_ip = detect_local_ip()  # type: ignore[attr-defined]
+    server.archive_idle_seconds = args.archive_idle_seconds  # type: ignore[attr-defined]
 
     print(f"Doubao Input Sync server running on http://127.0.0.1:{args.port}")
     print(f"LAN access: http://{server.local_ip}:{args.port}")  # type: ignore[attr-defined]
     print(f"Default mobile page: http://{server.local_ip}:{args.port}/mobile/{args.default_room}")
     print(f"Default PC page: http://127.0.0.1:{args.port}/pc/{args.default_room}")
+    print(f"Archive idle seconds: {args.archive_idle_seconds}")
 
     try:
         server.serve_forever()

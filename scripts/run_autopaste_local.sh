@@ -8,6 +8,7 @@ ROOM_ID="${ROOM_ID:-doubao}"
 PORT="${PORT:-8765}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"
+ARCHIVE_IDLE_SECONDS_VALUE="${ARCHIVE_IDLE_SECONDS:-2.4}"
 
 SERVER_URL="http://127.0.0.1:${PORT}"
 STARTED_SERVER=0
@@ -26,7 +27,7 @@ cd "$PROJECT_ROOT"
 
 if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
   echo "No relay server detected on ${SERVER_URL}, starting one locally..."
-  python3 app/server.py --host 0.0.0.0 --port "$PORT" --default-room "$ROOM_ID" &
+  python3 app/server.py --host 0.0.0.0 --port "$PORT" --default-room "$ROOM_ID" --archive-idle-seconds "$ARCHIVE_IDLE_SECONDS_VALUE" &
   SERVER_PID=$!
   STARTED_SERVER=1
   for _ in {1..40}; do
@@ -42,7 +43,7 @@ if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Auto paste helper is watching ${SERVER_URL} room=${ROOM_ID} mode=${MODE} trigger=${TRIGGER}"
+echo "Auto paste helper is watching ${SERVER_URL} room=${ROOM_ID} mode=${MODE} trigger=${TRIGGER} archive_idle_seconds=${ARCHIVE_IDLE_SECONDS_VALUE}"
 echo "Phone page: ${SERVER_URL/127.0.0.1/$(python3 - <<'PY'
 import socket
 s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

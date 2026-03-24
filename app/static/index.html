@@ -29,6 +29,7 @@
             <span class="status-chip" id="connection-status">连接中</span>
             <span id="version-badge">version 0</span>
           </div>
+          <div id="sync-flash" class="sync-flash" aria-live="polite">已捕捉并同步一批文字</div>
           <p class="meta-line" id="updated-at">尚未收到内容</p>
           <p class="meta-line" id="source-line">source: -</p>
         </div>
@@ -61,7 +62,7 @@
       <section class="panel" id="history-panel">
         <div class="panel-header">
           <h2>自动存档列表</h2>
-          <span class="hint">输入停顿约 1.2 秒后自动入档</span>
+          <span class="hint" id="archive-hint">输入停顿后自动入档</span>
         </div>
         <div id="history-list" class="history-list">
           <div class="history-empty">还没有归档内容。</div>

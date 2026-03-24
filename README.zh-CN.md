@@ -20,11 +20,12 @@ English documentation: [README.md](README.md)
 ## 功能特点
 
 - 输入即同步，不需要发送按钮
-- 输入停顿约 `1.2` 秒后自动归档
+- 默认在输入停顿约 `2.4` 秒后自动归档
 - 桌面端保留历史列表，每条都可单独复制
 - 可选自动粘贴到当前激活输入框
 - Python 端只用标准库，没有额外依赖
 - 手机不在局域网时，可临时通过 tunnel 做公网测试
+- 当一批稳定文本被捕捉并同步后，界面会轻微闪一下做提示
 
 ## 工作方式
 
@@ -129,6 +130,18 @@ MODE=clipboard ./scripts/run_autopaste_local.sh --dry-run
 ```bash
 python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smoke.json
 ```
+
+如果某个输入法会先出一版字、再快速修订一版，可以把归档等待窗口调大：
+
+```bash
+ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
+```
+
+## 数据隔离
+
+别人 `clone` 下去以后，默认不会和你的数据存档互相打架。
+
+原因是当前状态和历史都只保存在各自本地进程的内存里。不同机器、不同本地实例天然隔离。只有在多个客户端故意连到同一个 relay server、并且还使用同一个 `room_id` 时，数据才会混到一起。
 
 ## macOS 权限
 

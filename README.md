@@ -20,11 +20,12 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 ## Features
 
 - Auto-sync while typing, no explicit send button
-- Auto-archive after the text settles for about 1.2 seconds
+- Auto-archive after the text settles for about 2.4 seconds by default
 - Desktop history list with per-item copy actions
 - Optional auto-paste to the active desktop input on macOS
 - Zero Python dependencies beyond the standard library
 - Temporary public testing via tunnel tools if phone and desktop are not on the same LAN
+- Subtle visual flash when a settled batch is captured and synced
 
 ## How It Works
 
@@ -129,6 +130,18 @@ Run the smoke test:
 ```bash
 python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smoke.json
 ```
+
+Tune the settle window if your input method revises text in multiple passes:
+
+```bash
+ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
+```
+
+## Data Isolation
+
+Clones do not conflict with each other by default.
+
+Each local process keeps its own in-memory state, so separate users who clone and run the project on their own machines get fully isolated archives. Data only mixes when multiple clients intentionally talk to the same running relay server and use the same `room_id`.
 
 ## macOS Permissions
 

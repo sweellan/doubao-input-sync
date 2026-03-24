@@ -4,7 +4,9 @@
     role: "landing",
     draftSaveTimer: null,
     lastVersion: 0,
+    lastHistoryCount: 0,
     eventSource: null,
+    flashTimer: null,
   };
 
   const roomInput = document.getElementById("room-input");
@@ -24,6 +26,8 @@
   const title = document.getElementById("page-title");
   const subtitle = document.getElementById("page-subtitle");
   const historyList = document.getElementById("history-list");
+  const syncFlash = document.getElementById("sync-flash");
+  const archiveHint = document.getElementById("archive-hint");
 
   function inferRoleFromPath() {
     const parts = window.location.pathname.split("/").filter(Boolean);
@@ -62,8 +66,29 @@
     pcPanel.hidden = false;
   }
 
+  function triggerFlash(message) {
+    if (!syncFlash) {
+      return;
+    }
+    syncFlash.textContent = message;
+    syncFlash.classList.remove("is-active");
+    void syncFlash.offsetWidth;
+    syncFlash.classList.add("is-active");
+    if (state.flashTimer) {
+      window.clearTimeout(state.flashTimer);
+    }
+    state.flashTimer = window.setTimeout(function () {
+      syncFlash.classList.remove("is-active");
+    }, 1500);
+  }
+
   function renderRoomState(payload) {
+    const previousVersion = state.lastVersion;
+    const previousHistoryCount = state.lastHistoryCount;
+    const nextHistoryCount = (payload.history || []).length;
+
     state.lastVersion = payload.version;
+    state.lastHistoryCount = nextHistoryCount;
     versionBadge.textContent = `version ${payload.version}`;
     updatedAt.textContent = payload.updated_at ? `updated at: ${payload.updated_at}` : "尚未收到内容";
     sourceLine.textContent = `source: ${payload.source || "-"}`;
@@ -74,6 +99,16 @@
       mobileEditor.value = payload.text || "";
     }
     renderHistory(payload.history || []);
+
+    if (nextHistoryCount > previousHistoryCount) {
+      saveState.textContent = "已捕捉并同步";
+      triggerFlash("已捕捉并同步一批文字");
+      return;
+    }
+
+    if (payload.version > previousVersion && previousVersion !== 0) {
+      saveState.textContent = "已同步，等待稳定归档";
+    }
   }
 
   function renderHistory(historyItems) {
@@ -128,6 +163,14 @@
     const response = await fetch(`/api/state?room_id=${encodeURIComponent(state.roomId)}`);
     const payload = await response.json();
     renderRoomState(payload);
+  }
+
+  async function fetchServerInfo() {
+    const response = await fetch("/api/server-info");
+    const payload = await response.json();
+    if (payload.archive_idle_seconds) {
+      archiveHint.textContent = `输入停顿约 ${payload.archive_idle_seconds} 秒后自动入档`;
+    }
   }
 
   async function pushDraft(text) {
@@ -215,5 +258,6 @@
   roomInput.value = state.roomId;
   bindEvents();
   fetchState();
+  fetchServerInfo();
   connectStream();
 })();
