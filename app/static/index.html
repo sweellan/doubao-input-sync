@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Doubao Input Sync Pilot</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="panel hero">
+        <p class="eyebrow">Doubao Input Sync Pilot</p>
+        <h1 id="page-title">手机输入，同步到 PC</h1>
+        <p id="page-subtitle" class="subtitle"></p>
+      </section>
+
+      <section class="panel grid">
+        <div class="card">
+          <label for="room-input">Room ID</label>
+          <div class="inline-row">
+            <input id="room-input" type="text" autocomplete="off">
+            <button id="reconnect-button" type="button">切换</button>
+          </div>
+          <p class="hint">手机页和 PC 页使用同一个 room 才会同步。</p>
+        </div>
+
+        <div class="card">
+          <div class="status-row">
+            <span class="status-chip" id="connection-status">连接中</span>
+            <span id="version-badge">version 0</span>
+          </div>
+          <p class="meta-line" id="updated-at">尚未收到内容</p>
+          <p class="meta-line" id="source-line">source: -</p>
+        </div>
+      </section>
+
+      <section class="panel" id="mobile-panel">
+        <div class="panel-header">
+          <h2>手机输入区</h2>
+          <span class="hint">输入会自动同步并归档</span>
+        </div>
+        <textarea id="mobile-editor" placeholder="把豆包输入法的结果持续输入在这里"></textarea>
+        <div class="inline-row actions">
+          <button id="clear-button" type="button">清空</button>
+          <span id="save-state" class="hint">待输入，自动同步中</span>
+        </div>
+      </section>
+
+      <section class="panel" id="pc-panel">
+        <div class="panel-header">
+          <h2>PC 同步区</h2>
+          <span class="hint">推荐主路径</span>
+        </div>
+        <div id="pc-output" class="output-box">等待手机端输入…</div>
+        <div class="inline-row actions">
+          <button id="copy-button" type="button">复制到剪贴板</button>
+          <button id="refresh-button" type="button">刷新状态</button>
+        </div>
+      </section>
+
+      <section class="panel" id="history-panel">
+        <div class="panel-header">
+          <h2>自动存档列表</h2>
+          <span class="hint">输入停顿约 1.2 秒后自动入档</span>
+        </div>
+        <div id="history-list" class="history-list">
+          <div class="history-empty">还没有归档内容。</div>
+        </div>
+        <p class="hint">
+          如果你要直接灌进当前激活输入框，可在本机另开：
+          <code>python3 scripts/mac_paste_helper.py --mode paste</code>
+        </p>
+      </section>
+    </main>
+
+    <script src="/assets/client.js"></script>
+  </body>
+</html>
