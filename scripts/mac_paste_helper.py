@@ -171,12 +171,27 @@ def main() -> int:
         else:
             if sys.platform != "darwin":
                 raise RuntimeError("mac_paste_helper.py only supports macOS live mode.")
-            if args.mode == "clipboard":
-                copy_to_clipboard(text)
-            else:
-                paste_to_active_app(text)
-            record["action"] = "applied"
-            print(json.dumps(record, ensure_ascii=False), flush=True)
+            try:
+                if args.mode == "clipboard":
+                    copy_to_clipboard(text)
+                else:
+                    paste_to_active_app(text)
+                record["action"] = "applied"
+                print(json.dumps(record, ensure_ascii=False), flush=True)
+            except subprocess.CalledProcessError as exc:
+                error_record = {
+                    "status": "apply_failed",
+                    "room_id": args.room_id,
+                    "mode": args.mode,
+                    "trigger": args.trigger,
+                    "trigger_ref": trigger_ref,
+                    "reason": str(exc),
+                }
+                if args.mode == "paste":
+                    error_record["hint"] = "Grant Accessibility permission to the terminal app that runs this helper."
+                print(json.dumps(error_record, ensure_ascii=False), flush=True)
+                time.sleep(args.interval_seconds)
+                continue
 
         applied_updates += 1
         if args.stop_after_updates and applied_updates >= args.stop_after_updates:

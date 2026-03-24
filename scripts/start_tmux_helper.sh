@@ -20,9 +20,7 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
   exit 0
 fi
 
-COMMAND="cd '$PROJECT_ROOT' && set -a && source '$CONFIG_FILE' && set +a && ./scripts/run_autopaste_local.sh"
-
-tmux new-session -d -s "$SESSION_NAME" "$COMMAND"
+tmux new-session -d -s "$SESSION_NAME" "${PROJECT_ROOT}/scripts/run_helper_supervised.sh"
 
 echo "Started tmux session: $SESSION_NAME"
 echo "Attach with: tmux attach -t $SESSION_NAME"
