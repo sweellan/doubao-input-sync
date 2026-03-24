@@ -76,7 +76,7 @@ def get_state(server_url: str, room_id: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def wait_for_archive(server_url: str, room_id: str, timeout_seconds: float = 5) -> dict:
+def wait_for_archive(server_url: str, room_id: str, timeout_seconds: float = 8) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         payload = get_state(server_url, room_id)

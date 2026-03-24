@@ -14,6 +14,7 @@
     pendingText: null,
     clientId: null,
     claimedOk: false,
+    capturePulseTimer: null,
   };
 
   const roomInput = document.getElementById("room-input");
@@ -102,7 +103,8 @@
   }
 
   function loadLocalPreferences() {
-    autoClearToggle.checked = window.localStorage.getItem(autoClearStorageKey()) === "1";
+    const storedValue = window.localStorage.getItem(autoClearStorageKey());
+    autoClearToggle.checked = storedValue === null ? true : storedValue === "1";
   }
 
   function persistLocalPreferences() {
@@ -129,12 +131,21 @@
     if (!mobileEditor) {
       return;
     }
+    mobilePanel.classList.remove("capture-flash");
     mobileEditor.classList.remove("sync-captured");
     void mobileEditor.offsetWidth;
+    mobilePanel.classList.add("capture-flash");
     mobileEditor.classList.add("sync-captured");
-    window.setTimeout(function () {
+    if (navigator.vibrate) {
+      navigator.vibrate(24);
+    }
+    if (state.capturePulseTimer) {
+      window.clearTimeout(state.capturePulseTimer);
+    }
+    state.capturePulseTimer = window.setTimeout(function () {
+      mobilePanel.classList.remove("capture-flash");
       mobileEditor.classList.remove("sync-captured");
-    }, 1200);
+    }, 1500);
   }
 
   function setClaimWarning(message) {
@@ -186,7 +197,7 @@
     }
 
     if (payload.version > previousVersion && previousVersion !== 0) {
-      saveState.textContent = "已同步，等待稳定归档";
+      saveState.textContent = "草稿已同步，继续等稳定版本";
     }
   }
 
@@ -248,7 +259,7 @@
     const response = await fetch("/api/server-info");
     const payload = await response.json();
     if (payload.archive_idle_seconds) {
-      archiveHint.textContent = `输入停顿约 ${payload.archive_idle_seconds} 秒后自动入档`;
+      archiveHint.textContent = `只有连续约 ${payload.archive_idle_seconds} 秒没有新输入，才会正式捕捉`;
       archiveIdleInput.value = payload.archive_idle_seconds;
     }
   }
@@ -306,6 +317,7 @@
       const payload = await response.json();
       renderRoomState(payload);
       settingsStatus.textContent = "已保存";
+      saveState.textContent = "等待时间已更新";
     } catch (error) {
       settingsStatus.textContent = "保存失败，请重试";
     }

@@ -22,7 +22,7 @@ English documentation: [README.md](README.md)
 ## 功能特点
 
 - 输入即同步，不需要发送按钮
-- 默认在输入停顿约 `2.4` 秒后自动归档
+- 默认要等输入内容连续约 `5` 秒都没有新变化，才会正式捕捉
 - 默认使用随机 pairing code，而不是固定共享的房间名
 - 同一个房间里强约束为 `1 个手机位 + 1 个 PC 位`，冲突时会提示
 - 桌面端保留历史列表，每条都可单独复制
@@ -145,6 +145,7 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 ```
 
 现在手机页里也可以直接在界面上改这个等待时间。
+这里的逻辑不是“每隔 X 秒抓一次”，而是典型的 debounce：只要有新输入，计时就会重新开始；必须完整安静一段时间以后，才会正式捕捉。
 
 ## 数据隔离
 
@@ -152,7 +153,7 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 
 原因是当前状态和历史都只保存在各自本地进程的内存里。不同机器、不同本地实例天然隔离。只有在多个客户端故意连到同一个 relay server、并且还使用同一个 `room_id` 时，数据才会混到一起。
 
-手机页里也有一个 `归档后自动清空` 选项。你如果想每次捕捉后一键进入下一轮输入，就把它打开；如果更想人工确认，就关掉，继续手动点清空。
+手机页里也有一个 `归档后自动清空` 选项，而且现在默认就是勾选的。你如果更想人工确认，就把它关掉，继续手动点清空。
 
 ## 配对规则
 
@@ -162,6 +163,18 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 - 1 个 PC 位
 
 如果另一台手机或另一台 PC 试图占用同一个 room 的同一角色，页面会直接提示冲突，并建议切换到新的 room id。
+
+## tunnel 怎么常驻
+
+临时 tunnel 适合试跑，但稳定性一般。
+
+如果要常驻，比较靠谱的几条路是：
+
+- 用 `cloudflared tunnel` 做 named tunnel，再配 macOS `launchd`
+- 用 `ngrok` 登录账号后保留一个固定入口
+- 自己准备一个小 VPS / 反向代理做长期转发
+
+如果只是临时演示，`tunnelmole` 还够用；如果想日常稳定用，下一步最值得做的是 `cloudflared + launchd`。
 
 ## macOS 权限
 

@@ -22,7 +22,7 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 ## Features
 
 - Auto-sync while typing, no explicit send button
-- Auto-archive after the text settles for about 2.4 seconds by default
+- Auto-capture only after the text stops changing for about 5 seconds by default
 - Random pairing code by default instead of a shared hard-coded room name
 - Strong 1 phone + 1 desktop slot matching per room, with conflict warning
 - Desktop history list with per-item copy actions
@@ -145,6 +145,7 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 ```
 
 The mobile page also lets you change the capture wait time in the UI.
+The logic is debounce-style, not interval-style: every new input resets the timer, and capture happens only after a full quiet window with no new changes.
 
 ## Data Isolation
 
@@ -152,7 +153,7 @@ Clones do not conflict with each other by default.
 
 Each local process keeps its own in-memory state, so separate users who clone and run the project on their own machines get fully isolated archives. Data only mixes when multiple clients intentionally talk to the same running relay server and use the same `room_id`.
 
-The mobile page also includes an `Auto clear after archive` option. Leave it off if you prefer to review text before clearing, or turn it on if you want the input box to reset itself after each settled batch.
+The mobile page also includes an `Auto clear after archive` option, and it is enabled by default. Turn it off if you prefer to review text before clearing.
 
 ## Pairing Rules
 
@@ -162,6 +163,18 @@ Each room allows:
 - one desktop slot
 
 If another phone or another desktop page tries to take the same slot in the same room, the UI shows a conflict warning and asks the user to switch to a different room id.
+
+## Keeping The Tunnel Alive
+
+Temporary tunnels are convenient, but not especially durable.
+
+The more stable long-running options are:
+
+- `cloudflared tunnel` with a named tunnel plus macOS `launchd`
+- `ngrok` with an authenticated account and a reserved endpoint
+- your own small VPS or reverse proxy if you want full control
+
+For quick demos, `tunnelmole` is still fine. For daily use, a named `cloudflared` tunnel would be the most practical next step.
 
 ## macOS Permissions
 
