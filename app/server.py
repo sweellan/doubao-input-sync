@@ -60,6 +60,17 @@ class ArchiveEntry:
 
 
 @dataclass
+class RoleClaim:
+    role: str
+    client_id: str
+    claimed_at: str
+    client_label: str = ""
+
+    def payload(self) -> Dict[str, object]:
+        return asdict(self)
+
+
+@dataclass
 class RoomState:
     room_id: str
     text: str = ""
@@ -67,6 +78,7 @@ class RoomState:
     updated_at: str = ""
     source: str = ""
     archive_idle_seconds: float = ARCHIVE_IDLE_SECONDS
+    claims: Dict[str, RoleClaim] = field(default_factory=dict)
     history: List[ArchiveEntry] = field(default_factory=list)
 
     def payload(self) -> Dict[str, object]:
@@ -79,6 +91,7 @@ class RoomState:
             "settings": {
                 "archive_idle_seconds": self.archive_idle_seconds,
             },
+            "claims": {role: claim.payload() for role, claim in self.claims.items()},
             "history": [entry.payload() for entry in self.history],
         }
 
@@ -90,6 +103,15 @@ class RoomState:
             updated_at=self.updated_at,
             source=self.source,
             archive_idle_seconds=self.archive_idle_seconds,
+            claims={
+                role: RoleClaim(
+                    role=claim.role,
+                    client_id=claim.client_id,
+                    claimed_at=claim.claimed_at,
+                    client_label=claim.client_label,
+                )
+                for role, claim in self.claims.items()
+            },
             history=[
                 ArchiveEntry(
                     archive_id=entry.archive_id,
@@ -175,6 +197,40 @@ class RoomStore:
             subscriber.put(payload)
 
         return room.clone()
+
+    def claim_role(self, room_id: str, role: str, client_id: str, client_label: str) -> Dict[str, object]:
+        with self._lock:
+            room = self._ensure_room(room_id)
+            existing_claim = room.claims.get(role)
+            conflict = existing_claim is not None and existing_claim.client_id != client_id
+
+            if not conflict:
+                room.claims[role] = RoleClaim(
+                    role=role,
+                    client_id=client_id,
+                    claimed_at=utc_now_iso(),
+                    client_label=client_label,
+                )
+                payload = room.payload()
+                subscribers = list(self._subscribers.get(room_id, []))
+            else:
+                payload = room.payload()
+                subscribers = []
+                conflict_payload = existing_claim.payload()
+
+        for subscriber in subscribers:
+            subscriber.put(payload)
+
+        response = {
+            "ok": not conflict,
+            "conflict": conflict,
+            "role": role,
+            "room_id": room_id,
+            "state": payload,
+        }
+        if conflict:
+            response["occupant"] = conflict_payload
+        return response
 
     def _archive_if_idle(self, room_id: str, expected_version: int) -> None:
         with self._lock:
@@ -279,6 +335,10 @@ class RelayHandler(BaseHTTPRequestHandler):
             self._handle_settings_update()
             return
 
+        if parsed.path == "/api/claim":
+            self._handle_claim()
+            return
+
         if parsed.path != "/api/update":
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -318,6 +378,28 @@ class RelayHandler(BaseHTTPRequestHandler):
 
         room = self.store.update_settings(room_id=room_id, archive_idle_seconds=archive_idle_seconds)
         self._send_json(room.payload(), status=HTTPStatus.OK)
+
+    def _handle_claim(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length) or b"{}")
+        room_id = (payload.get("room_id") or self.default_room).strip()
+        role = (payload.get("role") or "").strip()
+        client_id = (payload.get("client_id") or "").strip()
+        client_label = (payload.get("client_label") or "").strip()
+
+        if not room_id:
+            self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if role not in {"mobile", "pc"}:
+            self._send_json({"error": "role must be mobile or pc"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not client_id:
+            self._send_json({"error": "client_id is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        result = self.store.claim_role(room_id=room_id, role=role, client_id=client_id, client_label=client_label)
+        status = HTTPStatus.CONFLICT if result["conflict"] else HTTPStatus.OK
+        self._send_json(result, status=status)
 
     def _room_id_from_query(self, query: str) -> str:
         params = parse_qs(query)

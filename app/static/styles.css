@@ -67,6 +67,16 @@ h1 {
   line-height: 1.6;
 }
 
+.claim-warning {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(165, 48, 18, 0.12);
+  border: 1px solid rgba(165, 48, 18, 0.18);
+  color: #8f3519;
+  line-height: 1.5;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -135,6 +145,10 @@ textarea {
   resize: vertical;
   margin-top: 14px;
   line-height: 1.6;
+}
+
+.sync-captured {
+  animation: inputCapturedPulse 1100ms ease;
 }
 
 button {
@@ -242,6 +256,24 @@ code {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(202, 91, 45, 0);
+  }
+}
+
+@keyframes inputCapturedPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(202, 91, 45, 0.28);
+    border-color: rgba(202, 91, 45, 0.24);
+    background: rgba(255, 255, 255, 0.84);
+  }
+  45% {
+    box-shadow: 0 0 0 12px rgba(202, 91, 45, 0.03);
+    border-color: rgba(202, 91, 45, 0.48);
+    background: rgba(255, 244, 238, 0.96);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(202, 91, 45, 0);
+    border-color: rgba(30, 27, 24, 0.14);
+    background: rgba(255, 255, 255, 0.84);
   }
 }
 

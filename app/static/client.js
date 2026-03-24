@@ -12,6 +12,8 @@
     pollTimer: null,
     mobileHydrated: false,
     pendingText: null,
+    clientId: null,
+    claimedOk: false,
   };
 
   const roomInput = document.getElementById("room-input");
@@ -34,10 +36,12 @@
   const sourceLine = document.getElementById("source-line");
   const title = document.getElementById("page-title");
   const subtitle = document.getElementById("page-subtitle");
+  const claimWarning = document.getElementById("claim-warning");
   const historyList = document.getElementById("history-list");
   const syncFlash = document.getElementById("sync-flash");
   const archiveHint = document.getElementById("archive-hint");
   const autoClearStoragePrefix = "doubao-input-sync:auto-clear:";
+  const clientIdStoragePrefix = "doubao-input-sync:client-id:";
 
   function inferRoleFromPath() {
     const parts = window.location.pathname.split("/").filter(Boolean);
@@ -76,6 +80,23 @@
     pcPanel.hidden = false;
   }
 
+  function clientIdStorageKey() {
+    return `${clientIdStoragePrefix}${state.role}:${state.roomId}`;
+  }
+
+  function ensureClientId() {
+    if (state.role === "landing") {
+      return;
+    }
+    const storageKey = clientIdStorageKey();
+    let clientId = window.localStorage.getItem(storageKey);
+    if (!clientId) {
+      clientId = `${state.role}-${Math.random().toString(36).slice(2, 10)}`;
+      window.localStorage.setItem(storageKey, clientId);
+    }
+    state.clientId = clientId;
+  }
+
   function autoClearStorageKey() {
     return `${autoClearStoragePrefix}${state.roomId}`;
   }
@@ -104,6 +125,31 @@
     }, 1500);
   }
 
+  function triggerCapturedPulse() {
+    if (!mobileEditor) {
+      return;
+    }
+    mobileEditor.classList.remove("sync-captured");
+    void mobileEditor.offsetWidth;
+    mobileEditor.classList.add("sync-captured");
+    window.setTimeout(function () {
+      mobileEditor.classList.remove("sync-captured");
+    }, 1200);
+  }
+
+  function setClaimWarning(message) {
+    if (!claimWarning) {
+      return;
+    }
+    if (!message) {
+      claimWarning.hidden = true;
+      claimWarning.textContent = "";
+      return;
+    }
+    claimWarning.hidden = false;
+    claimWarning.textContent = message;
+  }
+
   function renderRoomState(payload) {
     const previousVersion = state.lastVersion;
     const previousHistoryCount = state.lastHistoryCount;
@@ -130,6 +176,9 @@
     if (nextHistoryCount > previousHistoryCount) {
       saveState.textContent = autoClearToggle.checked ? "已捕捉并同步，已自动清空" : "已捕捉并同步";
       triggerFlash("已捕捉并同步一批文字");
+      if (state.role === "mobile") {
+        triggerCapturedPulse();
+      }
       if (state.role === "mobile" && autoClearToggle.checked) {
         mobileEditor.value = "";
       }
@@ -262,6 +311,48 @@
     }
   }
 
+  async function claimCurrentRole() {
+    if (state.role === "landing") {
+      return true;
+    }
+    ensureClientId();
+    try {
+      const response = await fetch("/api/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          room_id: state.roomId,
+          role: state.role,
+          client_id: state.clientId,
+          client_label: navigator.userAgent.slice(0, 120),
+        }),
+      });
+      const payload = await response.json();
+      if (payload.conflict) {
+        state.claimedOk = false;
+        setClaimWarning(`这个房间的 ${state.role === "mobile" ? "手机位" : "PC 位"} 已经被另一台设备占用了。请换一个新的 room id 再继续。`);
+        if (state.role === "mobile") {
+          mobileEditor.disabled = true;
+        }
+        return false;
+      }
+      state.claimedOk = true;
+      setClaimWarning("");
+      if (state.role === "mobile") {
+        mobileEditor.disabled = false;
+      }
+      if (payload.state) {
+        renderRoomState(payload.state);
+      }
+      return true;
+    } catch (error) {
+      setClaimWarning("当前无法确认配对状态，正在自动重试。");
+      return false;
+    }
+  }
+
   function scheduleReconnect() {
     if (state.reconnectTimer) {
       return;
@@ -303,6 +394,7 @@
     eventSource.addEventListener("open", function () {
       connectionStatus.textContent = "已连接";
       stopPolling();
+      claimCurrentRole();
     });
 
     eventSource.addEventListener("error", function () {
@@ -358,17 +450,21 @@
         window.clearTimeout(state.draftSaveTimer);
       }
       state.draftSaveTimer = window.setTimeout(function () {
-        pushDraft(mobileEditor.value);
+        if (state.claimedOk !== false) {
+          pushDraft(mobileEditor.value);
+        }
       }, 180);
     });
   }
 
   inferRoleFromPath();
   setRoleView();
+  ensureClientId();
   roomInput.value = state.roomId;
   loadLocalPreferences();
   bindEvents();
   fetchState();
   fetchServerInfo();
+  claimCurrentRole();
   connectStream();
 })();

@@ -3,8 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEFAULT_ROOM_ID="$(python3 - <<'PY'
+import secrets
+print(f"pair-{secrets.token_hex(3)}", end="")
+PY
+)"
 
-ROOM_ID="${ROOM_ID:-doubao}"
+ROOM_ID="${ROOM_ID:-$DEFAULT_ROOM_ID}"
 PORT="${PORT:-8765}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"

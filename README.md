@@ -23,6 +23,8 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 
 - Auto-sync while typing, no explicit send button
 - Auto-archive after the text settles for about 2.4 seconds by default
+- Random pairing code by default instead of a shared hard-coded room name
+- Strong 1 phone + 1 desktop slot matching per room, with conflict warning
 - Desktop history list with per-item copy actions
 - Optional auto-paste to the active desktop input on macOS
 - Zero Python dependencies beyond the standard library
@@ -116,6 +118,8 @@ Start relay + auto-paste helper:
 ./scripts/run_autopaste_local.sh
 ```
 
+By default this generates a random room id like `pair-a1b2c3` and prints the corresponding phone page URL.
+
 Safe dry run:
 
 ```bash
@@ -149,6 +153,15 @@ Clones do not conflict with each other by default.
 Each local process keeps its own in-memory state, so separate users who clone and run the project on their own machines get fully isolated archives. Data only mixes when multiple clients intentionally talk to the same running relay server and use the same `room_id`.
 
 The mobile page also includes an `Auto clear after archive` option. Leave it off if you prefer to review text before clearing, or turn it on if you want the input box to reset itself after each settled batch.
+
+## Pairing Rules
+
+Each room allows:
+
+- one mobile slot
+- one desktop slot
+
+If another phone or another desktop page tries to take the same slot in the same room, the UI shows a conflict warning and asks the user to switch to a different room id.
 
 ## macOS Permissions
 
