@@ -60,6 +60,8 @@ scripts/
   install_launch_agent.sh
   uninstall_launch_agent.sh
   launch_agent_status.sh
+  start_tmux_helper.sh
+  stop_tmux_helper.sh
   mac_paste_helper.py
   smoke_test.py
 docs/
@@ -240,6 +242,13 @@ MODE="paste" \
 ```bash
 ./scripts/launch_agent_status.sh
 ./scripts/uninstall_launch_agent.sh
+```
+
+如果你更想用“前台 helper + tmux 常驻”的方式，也可以：
+
+```bash
+./scripts/start_tmux_helper.sh
+tmux attach -t doubao-paste
 ```
 
 ## macOS 权限

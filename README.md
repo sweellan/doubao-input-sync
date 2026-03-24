@@ -60,6 +60,8 @@ scripts/
   install_launch_agent.sh
   uninstall_launch_agent.sh
   launch_agent_status.sh
+  start_tmux_helper.sh
+  stop_tmux_helper.sh
   mac_paste_helper.py
   smoke_test.py
 docs/
@@ -239,6 +241,13 @@ Useful follow-up commands:
 ```bash
 ./scripts/launch_agent_status.sh
 ./scripts/uninstall_launch_agent.sh
+```
+
+If you prefer a foreground helper that still survives shell disconnects, you can use tmux instead:
+
+```bash
+./scripts/start_tmux_helper.sh
+tmux attach -t doubao-paste
 ```
 
 ## macOS Permissions
