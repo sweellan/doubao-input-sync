@@ -89,6 +89,7 @@ def wait_for_archive(server_url: str, room_id: str, timeout_seconds: float = 8) 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the Doubao Input Sync smoke test.")
     parser.add_argument("--room-id", default="smoke-room")
+    parser.add_argument("--base-path", default="")
     parser.add_argument("--output-json", required=True)
     return parser
 
@@ -96,7 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     port = find_free_port()
-    server_url = f"http://127.0.0.1:{port}"
+    base_path = args.base_path.rstrip("/")
+    server_url = f"http://127.0.0.1:{port}{base_path}"
 
     with tempfile.TemporaryDirectory(prefix="doubao_sync_smoke_") as temp_dir:
         temp_path = Path(temp_dir)
@@ -104,8 +106,11 @@ def main() -> int:
         helper_log = temp_path / "helper.log"
 
         with server_log.open("w", encoding="utf-8") as server_handle:
+            server_args = [sys.executable, "app/server.py", "--host", "127.0.0.1", "--port", str(port), "--default-room", args.room_id]
+            if args.base_path:
+                server_args.extend(["--base-path", args.base_path])
             server_proc = subprocess.Popen(
-                [sys.executable, "app/server.py", "--host", "127.0.0.1", "--port", str(port), "--default-room", args.room_id],
+                server_args,
                 cwd=PROJECT_ROOT,
                 stdout=server_handle,
                 stderr=subprocess.STDOUT,

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Doubao Input Sync Pilot</title>
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="__BASE_PATH__/assets/styles.css">
   </head>
   <body>
     <main class="page-shell">
@@ -88,6 +88,7 @@
       </section>
     </main>
 
-    <script src="/assets/client.js"></script>
+    <script>window.__APP_BASE_PATH__ = "__BASE_PATH__";</script>
+    <script src="__BASE_PATH__/assets/client.js"></script>
   </body>
 </html>

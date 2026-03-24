@@ -16,6 +16,7 @@
     claimedOk: false,
     capturePulseTimer: null,
   };
+  const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
   const roomInput = document.getElementById("room-input");
   const reconnectButton = document.getElementById("reconnect-button");
@@ -44,8 +45,19 @@
   const autoClearStoragePrefix = "doubao-input-sync:auto-clear:";
   const clientIdStoragePrefix = "doubao-input-sync:client-id:";
 
+  function appPath(path) {
+    return `${basePath}${path}`;
+  }
+
+  function relativeAppPath(pathname) {
+    if (basePath && pathname.startsWith(basePath)) {
+      return pathname.slice(basePath.length) || "/";
+    }
+    return pathname;
+  }
+
   function inferRoleFromPath() {
-    const parts = window.location.pathname.split("/").filter(Boolean);
+    const parts = relativeAppPath(window.location.pathname).split("/").filter(Boolean);
     if (parts[0] === "mobile") {
       state.role = "mobile";
       state.roomId = parts[1] || "doubao";
@@ -250,13 +262,13 @@
   }
 
   async function fetchState() {
-    const response = await fetch(`/api/state?room_id=${encodeURIComponent(state.roomId)}`);
+    const response = await fetch(appPath(`/api/state?room_id=${encodeURIComponent(state.roomId)}`));
     const payload = await response.json();
     renderRoomState(payload);
   }
 
   async function fetchServerInfo() {
-    const response = await fetch("/api/server-info");
+    const response = await fetch(appPath("/api/server-info"));
     const payload = await response.json();
     if (payload.archive_idle_seconds) {
       archiveHint.textContent = `只有连续约 ${payload.archive_idle_seconds} 秒没有新输入，才会正式捕捉`;
@@ -268,7 +280,7 @@
     saveState.textContent = "同步中…";
     state.pendingText = text;
     try {
-      const response = await fetch("/api/update", {
+      const response = await fetch(appPath("/api/update"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -304,7 +316,7 @@
   async function saveSettings() {
     settingsStatus.textContent = "保存中…";
     try {
-      const response = await fetch("/api/settings", {
+      const response = await fetch(appPath("/api/settings"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -329,7 +341,7 @@
     }
     ensureClientId();
     try {
-      const response = await fetch("/api/claim", {
+      const response = await fetch(appPath("/api/claim"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -400,7 +412,7 @@
     }
 
     connectionStatus.textContent = "连接中";
-    const eventSource = new EventSource(`/api/stream?room_id=${encodeURIComponent(state.roomId)}`);
+    const eventSource = new EventSource(appPath(`/api/stream?room_id=${encodeURIComponent(state.roomId)}`));
     state.eventSource = eventSource;
 
     eventSource.addEventListener("open", function () {
@@ -430,10 +442,10 @@
     const prefix = state.role === "pc" ? "/pc/" : "/mobile/";
     persistLocalPreferences();
     if (state.role === "landing") {
-      window.location.href = `/pc/${encodeURIComponent(nextRoom)}`;
+      window.location.href = appPath(`/pc/${encodeURIComponent(nextRoom)}`);
       return;
     }
-    window.location.href = `${prefix}${encodeURIComponent(nextRoom)}`;
+    window.location.href = appPath(`${prefix}${encodeURIComponent(nextRoom)}`);
   }
 
   function bindEvents() {

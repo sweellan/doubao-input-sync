@@ -11,11 +11,12 @@ PY
 
 ROOM_ID="${ROOM_ID:-$DEFAULT_ROOM_ID}"
 PORT="${PORT:-8765}"
+BASE_PATH="${BASE_PATH:-}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"
 ARCHIVE_IDLE_SECONDS_VALUE="${ARCHIVE_IDLE_SECONDS:-2.0}"
 
-SERVER_URL="${SERVER_URL:-http://127.0.0.1:${PORT}}"
+SERVER_URL="${SERVER_URL:-http://127.0.0.1:${PORT}${BASE_PATH}}"
 STARTED_SERVER=0
 SERVER_PID=""
 
@@ -31,14 +32,18 @@ trap cleanup EXIT INT TERM
 cd "$PROJECT_ROOT"
 
 IS_LOCAL_SERVER_URL=0
-if [[ "$SERVER_URL" == "http://127.0.0.1:${PORT}" || "$SERVER_URL" == "http://localhost:${PORT}" ]]; then
+if [[ "$SERVER_URL" == "http://127.0.0.1:${PORT}${BASE_PATH}" || "$SERVER_URL" == "http://localhost:${PORT}${BASE_PATH}" ]]; then
   IS_LOCAL_SERVER_URL=1
 fi
 
 if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
   if [[ "$IS_LOCAL_SERVER_URL" == "1" ]]; then
     echo "No relay server detected on ${SERVER_URL}, starting one locally..."
-    python3 app/server.py --host 0.0.0.0 --port "$PORT" --default-room "$ROOM_ID" --archive-idle-seconds "$ARCHIVE_IDLE_SECONDS_VALUE" &
+    SERVER_ARGS=(python3 app/server.py --host 0.0.0.0 --port "$PORT" --default-room "$ROOM_ID" --archive-idle-seconds "$ARCHIVE_IDLE_SECONDS_VALUE")
+    if [[ -n "$BASE_PATH" ]]; then
+      SERVER_ARGS+=(--base-path "$BASE_PATH")
+    fi
+    "${SERVER_ARGS[@]}" &
     SERVER_PID=$!
     STARTED_SERVER=1
     for _ in {1..40}; do

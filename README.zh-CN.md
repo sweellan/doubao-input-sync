@@ -106,6 +106,42 @@ http://127.0.0.1:8765/pc/doubao
 - 监听最新归档结果
 - 在 macOS 上把这条稳定文本自动粘贴到当前焦点输入框
 
+## 复用固定 tunnel 入口
+
+如果你已经有一个固定公网 tunnel 域名，而且它当前正指向别的本地服务，最现实的免新域名方案通常是：
+
+```text
+固定公网 tunnel 域名
+  -> 宿主机本地反向代理
+     -> /doubao/* 转给 Doubao Input Sync
+     -> 其他路径继续转给现有本地服务
+```
+
+这个仓库现在已经支持挂在子路径下，比如 `/doubao`，不再要求独占根路径 `/`。
+
+以子路径模式启动：
+
+```bash
+BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 8765
+```
+
+然后在宿主机前面放一个本地反向代理。仓库里附了一个 Caddy 示例配置：
+[`deploy/Caddyfile.ngrok-subpath.example`](deploy/Caddyfile.ngrok-subpath.example)
+
+一个典型落地方式是：
+
+- 现有本地服务继续留在 `127.0.0.1:18789`
+- Doubao Input Sync 跑在 `127.0.0.1:8765`，并设置 `BASE_PATH=/doubao`
+- Caddy 监听 `127.0.0.1:18889`
+- 把固定 tunnel 的上游从 `127.0.0.1:18789` 改成 `127.0.0.1:18889`
+
+这样最终访问地址就是：
+
+- 手机页：`https://<固定域名>/doubao/mobile/<room>`
+- PC 页：`https://<固定域名>/doubao/pc/<room>`
+
+和继续追求“第二个长期免费的固定公网域名”相比，这条路通常更稳，也更容易长期维护。
+
 ## 常用命令
 
 只启动 relay：
@@ -221,6 +257,7 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 python3 -m py_compile app/server.py scripts/mac_paste_helper.py scripts/smoke_test.py
 node --check app/static/client.js
 python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smoke.json
+python3 scripts/smoke_test.py --room-id smoke-room --base-path /doubao --output-json /tmp/doubao-smoke-subpath.json
 ```
 
 ## 许可证

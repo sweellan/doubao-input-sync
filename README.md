@@ -106,6 +106,41 @@ This will:
 - watch the latest archived snapshot
 - paste it into the currently focused desktop input on macOS
 
+## Stable Shared-Tunnel Deployment
+
+If you already have a fixed tunnel hostname that is currently pointing at another local service, the most practical no-new-domain setup is:
+
+```text
+fixed public tunnel hostname
+  -> local reverse proxy on the host machine
+     -> /doubao/* -> Doubao Input Sync
+     -> everything else -> your existing local service
+```
+
+This repo now supports subpath deployment, so you can run it under a prefix such as `/doubao` instead of taking over `/`.
+
+Start the relay in subpath mode:
+
+```bash
+BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 8765
+```
+
+Then put a local reverse proxy in front of both services. An example Caddy config is included at [`deploy/Caddyfile.ngrok-subpath.example`](deploy/Caddyfile.ngrok-subpath.example).
+
+Example layout:
+
+- existing local service stays on `127.0.0.1:18789`
+- Doubao Input Sync runs on `127.0.0.1:8765` with `BASE_PATH=/doubao`
+- Caddy listens on `127.0.0.1:18889`
+- your fixed tunnel endpoint forwards to `127.0.0.1:18889`
+
+In that setup:
+
+- phone page: `https://<your-fixed-hostname>/doubao/mobile/<room>`
+- PC page: `https://<your-fixed-hostname>/doubao/pc/<room>`
+
+This is usually lower-maintenance than trying to find a second free long-lived public hostname.
+
 ## Main Commands
 
 Start only the relay:
@@ -221,6 +256,7 @@ Useful checks:
 python3 -m py_compile app/server.py scripts/mac_paste_helper.py scripts/smoke_test.py
 node --check app/static/client.js
 python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smoke.json
+python3 scripts/smoke_test.py --room-id smoke-room --base-path /doubao --output-json /tmp/doubao-smoke-subpath.json
 ```
 
 ## License

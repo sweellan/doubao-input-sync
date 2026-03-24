@@ -12,7 +12,7 @@ import sys
 import time
 from urllib.error import URLError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -> dict:
@@ -25,6 +25,10 @@ def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -
             "-fsS",
             "--max-time",
             str(request_timeout_seconds),
+            "-H",
+            "ngrok-skip-browser-warning: 1",
+            "-A",
+            "doubao-input-sync-helper/1.0",
             url,
         ],
         capture_output=True,
@@ -35,7 +39,14 @@ def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -
         return json.loads(curl_proc.stdout)
 
     # Fallback to urllib in case curl is unavailable or the environment differs.
-    with urlopen(url, timeout=request_timeout_seconds) as response:
+    request = Request(
+        url,
+        headers={
+            "ngrok-skip-browser-warning": "1",
+            "User-Agent": "doubao-input-sync-helper/1.0",
+        },
+    )
+    with urlopen(request, timeout=request_timeout_seconds) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

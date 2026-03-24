@@ -46,6 +46,15 @@ def parse_archive_idle_seconds(raw_value: str) -> float:
     return value
 
 
+def normalize_base_path(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    if not value or value == "/":
+        return ""
+    if not value.startswith("/"):
+        value = f"/{value}"
+    return value.rstrip("/")
+
+
 @dataclass
 class ArchiveEntry:
     archive_id: int
@@ -281,12 +290,19 @@ class RelayHandler(BaseHTTPRequestHandler):
     def local_ip(self) -> str:
         return self.server.local_ip  # type: ignore[attr-defined]
 
+    @property
+    def base_path(self) -> str:
+        return self.server.base_path  # type: ignore[attr-defined]
+
     def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        path = parsed.path
+        path = self._strip_base_path(parsed.path)
+        if path is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
 
         if path == "/api/ping":
             self._send_json({"ok": True, "ts": utc_now_iso()})
@@ -298,8 +314,9 @@ class RelayHandler(BaseHTTPRequestHandler):
                     "host": self.server.server_address[0],
                     "port": self.server.server_address[1],
                     "default_room": self.default_room,
+                    "base_path": self.base_path,
                     "local_ip": self.local_ip,
-                    "local_base_url": f"http://{self.local_ip}:{self.server.server_address[1]}",
+                    "local_base_url": f"http://{self.local_ip}:{self.server.server_address[1]}{self.base_path}",
                     "archive_idle_seconds": self.server.archive_idle_seconds,  # type: ignore[attr-defined]
                 }
             )
@@ -316,7 +333,7 @@ class RelayHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/" or path.startswith("/mobile/") or path.startswith("/pc/"):
-            self._serve_file(STATIC_ROOT / "index.html", "text/html; charset=utf-8")
+            self._serve_index()
             return
 
         if path == "/assets/client.js":
@@ -331,15 +348,20 @@ class RelayHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path == "/api/settings":
+        path = self._strip_base_path(parsed.path)
+        if path is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+
+        if path == "/api/settings":
             self._handle_settings_update()
             return
 
-        if parsed.path == "/api/claim":
+        if path == "/api/claim":
             self._handle_claim()
             return
 
-        if parsed.path != "/api/update":
+        if path != "/api/update":
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
@@ -424,6 +446,25 @@ class RelayHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_index(self) -> None:
+        html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+        body = html.replace("__BASE_PATH__", self.base_path).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _strip_base_path(self, path: str) -> str | None:
+        if not self.base_path:
+            return path
+        if path == self.base_path:
+            return "/"
+        if path.startswith(f"{self.base_path}/"):
+            return path[len(self.base_path) :]
+        return None
+
     def _stream_room(self, room_id: str) -> None:
         watcher = self.store.subscribe(room_id)
         try:
@@ -458,6 +499,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--default-room", default="doubao")
     parser.add_argument("--archive-idle-seconds", type=parse_archive_idle_seconds, default=ARCHIVE_IDLE_SECONDS)
+    parser.add_argument("--base-path", type=normalize_base_path, default=normalize_base_path(os.environ.get("BASE_PATH", "")))
     return parser
 
 
@@ -468,12 +510,16 @@ def main() -> None:
     server.default_room = args.default_room  # type: ignore[attr-defined]
     server.local_ip = detect_local_ip()  # type: ignore[attr-defined]
     server.archive_idle_seconds = args.archive_idle_seconds  # type: ignore[attr-defined]
+    server.base_path = args.base_path  # type: ignore[attr-defined]
 
-    print(f"Doubao Input Sync server running on http://127.0.0.1:{args.port}")
-    print(f"LAN access: http://{server.local_ip}:{args.port}")  # type: ignore[attr-defined]
-    print(f"Default mobile page: http://{server.local_ip}:{args.port}/mobile/{args.default_room}")
-    print(f"Default PC page: http://127.0.0.1:{args.port}/pc/{args.default_room}")
+    local_base = f"http://127.0.0.1:{args.port}{args.base_path}"
+    lan_base = f"http://{server.local_ip}:{args.port}{args.base_path}"  # type: ignore[attr-defined]
+    print(f"Doubao Input Sync server running on {local_base}")
+    print(f"LAN access: {lan_base}")
+    print(f"Default mobile page: {lan_base}/mobile/{args.default_room}")
+    print(f"Default PC page: {local_base}/pc/{args.default_room}")
     print(f"Archive idle seconds: {args.archive_idle_seconds}")
+    print(f"Base path: {args.base_path or '/'}")
 
     try:
         server.serve_forever()
