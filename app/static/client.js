@@ -15,6 +15,7 @@
     clientId: null,
     claimedOk: false,
     capturePulseTimer: null,
+    claimHeartbeatTimer: null,
   };
   const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
@@ -44,6 +45,7 @@
   const archiveHint = document.getElementById("archive-hint");
   const autoClearStoragePrefix = "doubao-input-sync:auto-clear:";
   const clientIdStoragePrefix = "doubao-input-sync:client-id:";
+  const claimHeartbeatIntervalMs = 15000;
 
   function appPath(path) {
     return `${basePath}${path}`;
@@ -177,6 +179,14 @@
     const previousVersion = state.lastVersion;
     const previousHistoryCount = state.lastHistoryCount;
     const nextHistoryCount = (payload.history || []).length;
+    const sawNewArchive = nextHistoryCount > previousHistoryCount;
+    const shouldClearFromServerState =
+      state.role === "mobile" &&
+      autoClearToggle.checked &&
+      mobileEditor &&
+      payload.text === "" &&
+      mobileEditor.value &&
+      payload.version >= previousVersion;
 
     state.lastVersion = payload.version;
     state.lastHistoryCount = nextHistoryCount;
@@ -196,7 +206,7 @@
     }
     renderHistory(payload.history || []);
 
-    if (nextHistoryCount > previousHistoryCount) {
+    if (sawNewArchive) {
       saveState.textContent = autoClearToggle.checked ? "已捕捉并同步，已自动清空" : "已捕捉并同步";
       triggerFlash("已捕捉并同步一批文字");
       if (state.role === "mobile") {
@@ -206,6 +216,11 @@
         mobileEditor.value = "";
       }
       return;
+    }
+
+    if (shouldClearFromServerState) {
+      mobileEditor.value = "";
+      saveState.textContent = "已同步空白状态";
     }
 
     if (payload.version > previousVersion && previousVersion !== 0) {
@@ -377,6 +392,49 @@
     }
   }
 
+  function stopClaimHeartbeat() {
+    if (!state.claimHeartbeatTimer) {
+      return;
+    }
+    window.clearInterval(state.claimHeartbeatTimer);
+    state.claimHeartbeatTimer = null;
+  }
+
+  function startClaimHeartbeat() {
+    if (state.role === "landing" || state.claimHeartbeatTimer) {
+      return;
+    }
+    state.claimHeartbeatTimer = window.setInterval(function () {
+      claimCurrentRole();
+    }, claimHeartbeatIntervalMs);
+  }
+
+  function releaseCurrentRole() {
+    if (state.role === "landing" || !state.clientId) {
+      return;
+    }
+    const payload = JSON.stringify({
+      room_id: state.roomId,
+      role: state.role,
+      client_id: state.clientId,
+    });
+    const url = appPath("/api/release");
+    stopClaimHeartbeat();
+    if (navigator.sendBeacon) {
+      const body = new Blob([payload], { type: "application/json" });
+      navigator.sendBeacon(url, body);
+      return;
+    }
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: payload,
+      keepalive: true,
+    }).catch(function () {});
+  }
+
   function scheduleReconnect() {
     if (state.reconnectTimer) {
       return;
@@ -419,6 +477,7 @@
       connectionStatus.textContent = "已连接";
       stopPolling();
       claimCurrentRole();
+      startClaimHeartbeat();
     });
 
     eventSource.addEventListener("error", function () {
@@ -427,6 +486,7 @@
         state.eventSource.close();
         state.eventSource = null;
       }
+      stopClaimHeartbeat();
       ensurePolling();
       scheduleReconnect();
     });
@@ -441,6 +501,7 @@
     const nextRoom = roomInput.value.trim() || "doubao";
     const prefix = state.role === "pc" ? "/pc/" : "/mobile/";
     persistLocalPreferences();
+    releaseCurrentRole();
     if (state.role === "landing") {
       window.location.href = appPath(`/pc/${encodeURIComponent(nextRoom)}`);
       return;
@@ -479,6 +540,8 @@
         }
       }, 180);
     });
+
+    window.addEventListener("pagehide", releaseCurrentRole);
   }
 
   inferRoleFromPath();

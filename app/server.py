@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
 ARCHIVE_IDLE_SECONDS = float(os.environ.get("ARCHIVE_IDLE_SECONDS", "2.0"))
+CLAIM_TTL_SECONDS = float(os.environ.get("CLAIM_TTL_SECONDS", "45.0"))
 MAX_HISTORY_ITEMS = 50
 
 
@@ -43,6 +44,13 @@ def parse_archive_idle_seconds(raw_value: str) -> float:
     value = float(raw_value)
     if value < 0.5:
         raise ValueError("archive idle seconds must be >= 0.5")
+    return value
+
+
+def parse_claim_ttl_seconds(raw_value: str) -> float:
+    value = float(raw_value)
+    if value < 10:
+        raise ValueError("claim ttl seconds must be >= 10")
     return value
 
 
@@ -73,6 +81,7 @@ class RoleClaim:
     role: str
     client_id: str
     claimed_at: str
+    last_seen_at: str
     client_label: str = ""
 
     def payload(self) -> Dict[str, object]:
@@ -117,6 +126,7 @@ class RoomState:
                     role=claim.role,
                     client_id=claim.client_id,
                     claimed_at=claim.claimed_at,
+                    last_seen_at=claim.last_seen_at,
                     client_label=claim.client_label,
                 )
                 for role, claim in self.claims.items()
@@ -136,13 +146,14 @@ class RoomState:
 
 
 class RoomStore:
-    def __init__(self, archive_idle_seconds: float) -> None:
+    def __init__(self, archive_idle_seconds: float, claim_ttl_seconds: float) -> None:
         self._lock = threading.Lock()
         self._rooms: Dict[str, RoomState] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._archive_timers: Dict[str, threading.Timer] = {}
         self._archive_ids: Dict[str, int] = {}
         self._default_archive_idle_seconds = archive_idle_seconds
+        self._claim_ttl_seconds = claim_ttl_seconds
 
     def _ensure_room(self, room_id: str) -> RoomState:
         room = self._rooms.get(room_id)
@@ -154,11 +165,13 @@ class RoomStore:
     def get(self, room_id: str) -> RoomState:
         with self._lock:
             room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
             return room.clone()
 
     def update(self, room_id: str, text: str, source: str) -> RoomState:
         with self._lock:
             room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
             previous_timer = self._archive_timers.pop(room_id, None)
             if previous_timer is not None:
                 previous_timer.cancel()
@@ -198,6 +211,7 @@ class RoomStore:
     def update_settings(self, room_id: str, archive_idle_seconds: float) -> RoomState:
         with self._lock:
             room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
             room.archive_idle_seconds = archive_idle_seconds
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
@@ -210,14 +224,17 @@ class RoomStore:
     def claim_role(self, room_id: str, role: str, client_id: str, client_label: str) -> Dict[str, object]:
         with self._lock:
             room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
             existing_claim = room.claims.get(role)
             conflict = existing_claim is not None and existing_claim.client_id != client_id
 
             if not conflict:
+                now = utc_now_iso()
                 room.claims[role] = RoleClaim(
                     role=role,
                     client_id=client_id,
-                    claimed_at=utc_now_iso(),
+                    claimed_at=existing_claim.claimed_at if existing_claim is not None else now,
+                    last_seen_at=now,
                     client_label=client_label,
                 )
                 payload = room.payload()
@@ -241,11 +258,55 @@ class RoomStore:
             response["occupant"] = conflict_payload
         return response
 
+    def release_role(self, room_id: str, role: str, client_id: str) -> Dict[str, object]:
+        with self._lock:
+            room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
+            existing_claim = room.claims.get(role)
+            released = existing_claim is not None and existing_claim.client_id == client_id
+            if released:
+                room.claims.pop(role, None)
+                payload = room.payload()
+                subscribers = list(self._subscribers.get(room_id, []))
+            else:
+                payload = room.payload()
+                subscribers = []
+
+        for subscriber in subscribers:
+            subscriber.put(payload)
+
+        return {
+            "ok": True,
+            "released": released,
+            "role": role,
+            "room_id": room_id,
+            "state": payload,
+        }
+
+    def _purge_expired_claims(self, room: RoomState) -> None:
+        expired_roles = [
+            role
+            for role, claim in room.claims.items()
+            if self._claim_is_expired(claim)
+        ]
+        for role in expired_roles:
+            room.claims.pop(role, None)
+
+    def _claim_is_expired(self, claim: RoleClaim) -> bool:
+        last_seen_at = claim.last_seen_at or claim.claimed_at
+        try:
+            last_seen = datetime.fromisoformat(last_seen_at)
+        except ValueError:
+            return True
+        age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
+        return age_seconds > self._claim_ttl_seconds
+
     def _archive_if_idle(self, room_id: str, expected_version: int) -> None:
         with self._lock:
             room = self._rooms.get(room_id)
             if room is None or room.version != expected_version:
                 return
+            self._purge_expired_claims(room)
 
             self._archive_timers.pop(room_id, None)
 
@@ -318,6 +379,7 @@ class RelayHandler(BaseHTTPRequestHandler):
                     "local_ip": self.local_ip,
                     "local_base_url": f"http://{self.local_ip}:{self.server.server_address[1]}{self.base_path}",
                     "archive_idle_seconds": self.server.archive_idle_seconds,  # type: ignore[attr-defined]
+                    "claim_ttl_seconds": self.server.claim_ttl_seconds,  # type: ignore[attr-defined]
                 }
             )
             return
@@ -359,6 +421,10 @@ class RelayHandler(BaseHTTPRequestHandler):
 
         if path == "/api/claim":
             self._handle_claim()
+            return
+
+        if path == "/api/release":
+            self._handle_release()
             return
 
         if path != "/api/update":
@@ -422,6 +488,26 @@ class RelayHandler(BaseHTTPRequestHandler):
         result = self.store.claim_role(room_id=room_id, role=role, client_id=client_id, client_label=client_label)
         status = HTTPStatus.CONFLICT if result["conflict"] else HTTPStatus.OK
         self._send_json(result, status=status)
+
+    def _handle_release(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length) or b"{}")
+        room_id = (payload.get("room_id") or self.default_room).strip()
+        role = (payload.get("role") or "").strip()
+        client_id = (payload.get("client_id") or "").strip()
+
+        if not room_id:
+            self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if role not in {"mobile", "pc"}:
+            self._send_json({"error": "role must be mobile or pc"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if not client_id:
+            self._send_json({"error": "client_id is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        result = self.store.release_role(room_id=room_id, role=role, client_id=client_id)
+        self._send_json(result, status=HTTPStatus.OK)
 
     def _room_id_from_query(self, query: str) -> str:
         params = parse_qs(query)
@@ -499,6 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--default-room", default="doubao")
     parser.add_argument("--archive-idle-seconds", type=parse_archive_idle_seconds, default=ARCHIVE_IDLE_SECONDS)
+    parser.add_argument("--claim-ttl-seconds", type=parse_claim_ttl_seconds, default=parse_claim_ttl_seconds(os.environ.get("CLAIM_TTL_SECONDS", str(CLAIM_TTL_SECONDS))))
     parser.add_argument("--base-path", type=normalize_base_path, default=normalize_base_path(os.environ.get("BASE_PATH", "")))
     return parser
 
@@ -506,10 +593,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     server = ThreadingHTTPServer((args.host, args.port), RelayHandler)
-    server.store = RoomStore(archive_idle_seconds=args.archive_idle_seconds)  # type: ignore[attr-defined]
+    server.store = RoomStore(archive_idle_seconds=args.archive_idle_seconds, claim_ttl_seconds=args.claim_ttl_seconds)  # type: ignore[attr-defined]
     server.default_room = args.default_room  # type: ignore[attr-defined]
     server.local_ip = detect_local_ip()  # type: ignore[attr-defined]
     server.archive_idle_seconds = args.archive_idle_seconds  # type: ignore[attr-defined]
+    server.claim_ttl_seconds = args.claim_ttl_seconds  # type: ignore[attr-defined]
     server.base_path = args.base_path  # type: ignore[attr-defined]
 
     local_base = f"http://127.0.0.1:{args.port}{args.base_path}"
@@ -519,6 +607,7 @@ def main() -> None:
     print(f"Default mobile page: {lan_base}/mobile/{args.default_room}")
     print(f"Default PC page: {local_base}/pc/{args.default_room}")
     print(f"Archive idle seconds: {args.archive_idle_seconds}")
+    print(f"Claim TTL seconds: {args.claim_ttl_seconds}")
     print(f"Base path: {args.base_path or '/'}")
 
     try:

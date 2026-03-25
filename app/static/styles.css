@@ -151,6 +151,10 @@ textarea {
   line-height: 1.6;
 }
 
+#mobile-editor {
+  min-height: clamp(460px, 62vh, 880px);
+}
+
 .sync-captured {
   animation: inputCapturedPulse 1100ms ease;
 }
@@ -316,5 +320,10 @@ code {
 
   button {
     width: 100%;
+  }
+
+  #mobile-editor {
+    min-height: 68vh;
+    min-height: 68svh;
   }
 }
