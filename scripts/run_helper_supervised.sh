@@ -1,5 +1,5 @@
 #!/bin/zsh
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -15,8 +15,10 @@ cd "$PROJECT_ROOT"
 
 while true; do
   printf '[%s] Starting helper supervisor loop\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+  set +e
   ./scripts/run_helper_daemon.sh
   exit_code=$?
+  set -e
   printf '[%s] Helper exited with code %s, restarting in 2s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$exit_code"
   sleep 2
 done
