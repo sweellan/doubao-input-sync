@@ -107,6 +107,24 @@ h1 {
   margin-top: 14px;
 }
 
+.mobile-toolbar {
+  align-items: center;
+  gap: 14px;
+  margin: 14px 0 10px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(30, 27, 24, 0.08);
+}
+
+.mobile-toolbar button {
+  flex: 0 0 auto;
+}
+
+.mobile-toolbar #save-state {
+  margin-left: auto;
+}
+
 label,
 .hint,
 .meta-line {
@@ -147,7 +165,6 @@ textarea {
 textarea {
   min-height: 320px;
   resize: vertical;
-  margin-top: 14px;
   line-height: 1.6;
 }
 
@@ -320,6 +337,10 @@ code {
 
   button {
     width: 100%;
+  }
+
+  .mobile-toolbar #save-state {
+    margin-left: 0;
   }
 
   #mobile-editor {
