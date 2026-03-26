@@ -73,6 +73,89 @@ That means:
 
 So the helper should not replay stale history on startup.
 
+## Known Issues
+
+### Mobile auto-clear can still fail intermittently
+
+Observed behavior:
+
+- the phone page can archive successfully
+- sync to the remote relay can still succeed
+- but the mobile textarea may occasionally fail to clear itself afterward
+
+Current working assumption:
+
+- this is likely related to mobile browser lifecycle or event-delivery behavior
+- it is not yet pinned down to a single root cause
+
+Current workaround:
+
+- use the manual `清空输入框` button if the text stays visible
+- if a room becomes behaviorally inconsistent, switch to a fresh room id
+
+This is a known issue for now and should not be treated as proof that the relay itself is down.
+
+### Mac helper still needs explicit observability
+
+When the Mac helper is running against a remote relay, there are two separate things to monitor:
+
+- whether it is successfully pulling state
+- whether it is successfully pasting into the focused macOS app
+
+These can fail independently, so treat them as separate checkpoints.
+
+## Recommended Monitoring
+
+### Quick pull-path verification
+
+Use a clipboard-only single-update run first:
+
+```bash
+cd <repo-root>
+SERVER_URL="http://100.69.170.35:18765/doubao" \
+ROOM_ID="testroom" \
+MODE="clipboard" \
+./scripts/run_autopaste_local.sh --stop-after-updates 1
+```
+
+If this succeeds, the helper is able to read the remote relay and process a fresh archive item.
+
+### LaunchAgent status and logs
+
+If the helper is installed as a LaunchAgent:
+
+```bash
+cd <repo-root>
+./scripts/launch_agent_status.sh
+tail -f ~/Library/Logs/doubao-input-sync/helper.stdout.log
+tail -f ~/Library/Logs/doubao-input-sync/helper.stderr.log
+```
+
+Recommended interpretation:
+
+- `stdout` answers whether new archive items are being consumed
+- `stderr` is where transport or runtime failures are most likely to show up
+
+### tmux-supervised helper
+
+If the helper is running under tmux:
+
+```bash
+cd <repo-root>
+./scripts/start_tmux_helper.sh
+tmux attach -t doubao-paste
+```
+
+This is useful when you want a persistent foreground view of helper activity without relying on the LaunchAgent logs.
+
+### Paste-path verification
+
+If remote pulling looks healthy but text still does not land in the target app, the remaining failure domain is usually local macOS paste execution:
+
+- Accessibility permission for the host app
+- current focused input not actually being active
+- target app rejecting synthetic paste at that moment
+
 ## Remote Codex Handoff Message
 
 Below is a short status note that can be sent to the remote Codex worker:
