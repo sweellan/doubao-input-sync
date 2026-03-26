@@ -36,7 +36,7 @@ If you use the remote Tailscale relay mode, the Mac helper should be started wit
 ## macOS Command
 
 ```bash
-cd /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot
+cd <repo-root>
 SERVER_URL="http://100.69.170.35:18765/doubao" \
 ROOM_ID="testroom" \
 MODE="paste" \
@@ -46,7 +46,7 @@ MODE="paste" \
 For a safer verification run:
 
 ```bash
-cd /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot
+cd <repo-root>
 SERVER_URL="http://100.69.170.35:18765/doubao" \
 ROOM_ID="testroom" \
 MODE="clipboard" \
@@ -91,7 +91,7 @@ Local fix applied:
 - helper startup ignores existing archive items by default and only reacts to newly created archive items
 
 Current intended Mac command:
-cd /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot
+cd <repo-root>
 SERVER_URL="http://100.69.170.35:18765/doubao" \
 ROOM_ID="testroom" \
 MODE="paste" \
@@ -99,4 +99,3 @@ MODE="paste" \
 
 At this point, if more issues appear, they are more likely to be around remote relay stability, room workflow, or macOS paste permissions rather than repo path or helper bootstrap.
 ```
-
