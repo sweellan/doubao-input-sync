@@ -32,11 +32,13 @@ def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -
             url,
         ],
         capture_output=True,
-        text=True,
         check=False,
     )
     if curl_proc.returncode == 0:
-        return json.loads(curl_proc.stdout)
+        try:
+            return json.loads(curl_proc.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
 
     # Fallback to urllib in case curl is unavailable or the environment differs.
     request = Request(
