@@ -113,6 +113,17 @@ class RoomState:
             "history": [entry.payload() for entry in self.history],
         }
 
+    def helper_payload(self) -> Dict[str, object]:
+        latest_archive = self.history[-1].payload() if self.history else None
+        return {
+            "room_id": self.room_id,
+            "text": self.text,
+            "version": self.version,
+            "updated_at": self.updated_at,
+            "source": self.source,
+            "latest_archive": latest_archive,
+        }
+
     def clone(self) -> "RoomState":
         return RoomState(
             room_id=self.room_id,
@@ -387,6 +398,11 @@ class RelayHandler(BaseHTTPRequestHandler):
         if path == "/api/state":
             room_id = self._room_id_from_query(parsed.query)
             self._send_json(self.store.get(room_id).payload())
+            return
+
+        if path == "/api/helper-state":
+            room_id = self._room_id_from_query(parsed.query)
+            self._send_json(self.store.get(room_id).helper_payload())
             return
 
         if path == "/api/stream":

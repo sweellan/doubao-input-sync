@@ -10,15 +10,12 @@ import socket
 import subprocess
 import sys
 import time
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -> dict:
-    query = urlencode({"room_id": room_id})
-    url = f"{server_url.rstrip('/')}/api/state?{query}"
-
+def fetch_json(url: str, request_timeout_seconds: float) -> dict:
     curl_proc = subprocess.run(
         [
             "curl",
@@ -40,7 +37,6 @@ def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -
         except (UnicodeDecodeError, json.JSONDecodeError):
             pass
 
-    # Fallback to urllib in case curl is unavailable or the environment differs.
     request = Request(
         url,
         headers={
@@ -50,6 +46,26 @@ def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -
     )
     with urlopen(request, timeout=request_timeout_seconds) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -> dict:
+    query = urlencode({"room_id": room_id})
+    helper_url = f"{server_url.rstrip('/')}/api/helper-state?{query}"
+    state_url = f"{server_url.rstrip('/')}/api/state?{query}"
+
+    try:
+        return fetch_json(helper_url, request_timeout_seconds)
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise
+    except (URLError, socket.timeout):
+        pass
+
+    payload = fetch_json(state_url, request_timeout_seconds)
+    if "latest_archive" not in payload:
+        history = payload.get("history") or []
+        payload["latest_archive"] = history[-1] if history else None
+    return payload
 
 
 def copy_to_clipboard(text: str) -> None:
@@ -121,23 +137,22 @@ def main() -> int:
 
         version = payload.get("version", 0)
         text = payload.get("text", "")
-        history = payload.get("history") or []
+        latest_archive = payload.get("latest_archive")
         trigger_ref = None
 
         if args.skip_existing and not startup_seeded:
             last_version = max(last_version, version)
-            if history:
-                last_archive_id = max(last_archive_id, history[-1].get("archive_id", 0))
+            if latest_archive:
+                last_archive_id = max(last_archive_id, latest_archive.get("archive_id", 0))
             startup_seeded = True
             time.sleep(args.interval_seconds)
             continue
 
         if args.trigger == "archive":
-            if not history:
+            if not latest_archive:
                 time.sleep(args.interval_seconds)
                 continue
 
-            latest_archive = history[-1]
             archive_id = latest_archive.get("archive_id", 0)
             if archive_id <= last_archive_id:
                 time.sleep(args.interval_seconds)
