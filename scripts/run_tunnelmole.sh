@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PORT="${PORT:-8765}"
+PORT="${PORT:-18766}"
 
 cd "$PROJECT_ROOT"
 

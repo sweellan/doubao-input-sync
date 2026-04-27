@@ -10,7 +10,7 @@ PY
 )"
 
 ROOM_ID="${ROOM_ID:-$DEFAULT_ROOM_ID}"
-PORT="${PORT:-8765}"
+PORT="${PORT:-18766}"
 BASE_PATH="${BASE_PATH:-}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"

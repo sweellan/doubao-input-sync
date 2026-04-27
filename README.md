@@ -76,14 +76,14 @@ docs/
 ./scripts/run_local_server.sh
 ```
 
-This starts the relay on `http://127.0.0.1:8765`.
+This starts the relay on `http://127.0.0.1:18766`.
 
 ### 2. Open the phone page
 
 If your phone and desktop are on the same LAN:
 
 ```text
-http://<your-desktop-lan-ip>:8765/mobile/doubao
+http://<your-desktop-lan-ip>:18766/mobile/doubao
 ```
 
 If your phone is only on the public internet, use a tunnel:
@@ -97,7 +97,7 @@ Then open the generated HTTPS URL plus `/mobile/doubao`.
 ### 3. Open the desktop page
 
 ```text
-http://127.0.0.1:8765/pc/doubao
+http://127.0.0.1:18766/pc/doubao
 ```
 
 ### 4. Optional: auto-paste into the current cursor position
@@ -128,7 +128,7 @@ This repo now supports subpath deployment, so you can run it under a prefix such
 Start the relay in subpath mode:
 
 ```bash
-BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 8765
+BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 18766
 ```
 
 Then put a local reverse proxy in front of both services. An example Caddy config is included at [`deploy/Caddyfile.ngrok-subpath.example`](deploy/Caddyfile.ngrok-subpath.example).
@@ -136,7 +136,7 @@ Then put a local reverse proxy in front of both services. An example Caddy confi
 Example layout:
 
 - existing local service stays on `127.0.0.1:18789`
-- Doubao Input Sync runs on `127.0.0.1:8765` with `BASE_PATH=/doubao`
+- Doubao Input Sync runs on `127.0.0.1:18766` with `BASE_PATH=/doubao`
 - Caddy listens on `127.0.0.1:18889`
 - your fixed tunnel endpoint forwards to `127.0.0.1:18889`
 

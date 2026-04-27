@@ -598,7 +598,7 @@ class RelayHandler(BaseHTTPRequestHandler):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the local Doubao input sync server.")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=18766)
     parser.add_argument("--default-room", default="doubao")
     parser.add_argument("--archive-idle-seconds", type=parse_archive_idle_seconds, default=ARCHIVE_IDLE_SECONDS)
     parser.add_argument("--claim-ttl-seconds", type=parse_claim_ttl_seconds, default=parse_claim_ttl_seconds(os.environ.get("CLAIM_TTL_SECONDS", str(CLAIM_TTL_SECONDS))))

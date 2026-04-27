@@ -1,7 +1,7 @@
 :18889 {
   @doubao path /doubao /doubao/*
   handle @doubao {
-    reverse_proxy 127.0.0.1:8765
+    reverse_proxy 127.0.0.1:18766
   }
 
   handle {

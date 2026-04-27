@@ -76,14 +76,14 @@ docs/
 ./scripts/run_local_server.sh
 ```
 
-默认地址是 `http://127.0.0.1:8765`。
+默认地址是 `http://127.0.0.1:18766`。
 
 ### 2. 打开手机输入页
 
 如果手机和电脑在同一个局域网：
 
 ```text
-http://<你的电脑局域网IP>:8765/mobile/doubao
+http://<你的电脑局域网IP>:18766/mobile/doubao
 ```
 
 如果手机只能走公网，先起一个临时 tunnel：
@@ -97,7 +97,7 @@ http://<你的电脑局域网IP>:8765/mobile/doubao
 ### 3. 打开桌面监看页
 
 ```text
-http://127.0.0.1:8765/pc/doubao
+http://127.0.0.1:18766/pc/doubao
 ```
 
 ### 4. 可选：直接自动粘贴到当前光标位置
@@ -128,7 +128,7 @@ http://127.0.0.1:8765/pc/doubao
 以子路径模式启动：
 
 ```bash
-BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 8765
+BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 18766
 ```
 
 然后在宿主机前面放一个本地反向代理。仓库里附了一个 Caddy 示例配置：
@@ -137,7 +137,7 @@ BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 8765
 一个典型落地方式是：
 
 - 现有本地服务继续留在 `127.0.0.1:18789`
-- Doubao Input Sync 跑在 `127.0.0.1:8765`，并设置 `BASE_PATH=/doubao`
+- Doubao Input Sync 跑在 `127.0.0.1:18766`，并设置 `BASE_PATH=/doubao`
 - Caddy 监听 `127.0.0.1:18889`
 - 把固定 tunnel 的上游从 `127.0.0.1:18789` 改成 `127.0.0.1:18889`
 

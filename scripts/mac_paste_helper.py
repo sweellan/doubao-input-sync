@@ -86,7 +86,7 @@ def paste_to_active_app(text: str) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Watch synced text and project it to macOS.")
-    parser.add_argument("--server-url", default="http://127.0.0.1:8765")
+    parser.add_argument("--server-url", default="http://127.0.0.1:18766")
     parser.add_argument("--room-id", default="doubao")
     parser.add_argument("--interval-seconds", type=float, default=0.5)
     parser.add_argument("--request-timeout-seconds", type=float, default=8.0)
