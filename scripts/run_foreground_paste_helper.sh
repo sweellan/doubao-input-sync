@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-SERVER_URL="${SERVER_URL:-http://100.69.170.35:18765/doubao}"
+SERVER_URL="${SERVER_URL:-https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao}"
 ROOM_ID="${ROOM_ID:-doubao}"
 TRIGGER="${TRIGGER:-archive}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-45}"

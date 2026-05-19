@@ -12,3 +12,26 @@
   - Foreground Terminal helper was configured with `MODE=paste` but still used `SERVER_URL=http://100.69.170.35:18765/doubao`.
 
 Interpretation: Tailscale network reachability was present, but the Tailscale HTTP relay/proxy path was not returning valid Doubao API responses. The user-facing ngrok page worked because it was a different healthy route.
+
+## After Fix Snapshot
+
+- Time: 2026-05-19 12:21 Asia/Shanghai.
+- Local helper consumption path was moved to fixed ngrok:
+  - `SERVER_URL=https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao`
+  - `ROOM_ID=doubao`
+  - `MODE=paste`
+  - `TRIGGER=archive`
+  - `REQUEST_TIMEOUT_SECONDS=45`
+- The old LaunchAgent helper was unloaded so there is no longer a background `MODE=clipboard` helper competing with the foreground paste helper.
+- The stale control-plane run from 2026-04-27 was marked stopped with return code `143`, because its Python helper had already been killed but the SQLite state still said `running`.
+- A new foreground paste helper was started through the control-plane persistent Terminal runner.
+- Current process check showed the active helper as:
+
+```text
+scripts/mac_paste_helper.py --server-url https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao --room-id doubao --mode paste --trigger archive --request-timeout-seconds 45
+```
+
+- Current run log: `__sys/automation/doubao_input_sync_control_plane/runtime/runs/260519_1219__doubao-foreground-paste-helper/stdout.log`.
+- The helper intentionally skipped existing archive `1046` on startup because `skip-existing` is the default; a fresh mobile archive is required to verify a new `action=applied` line.
+
+Current routing decision: Tailscale is still the preferred private path when its relay/proxy is healthy, but the active Mac helper now uses the fixed ngrok domain because the Tailscale HTTP API path is currently broken while ngrok is healthy.
