@@ -35,3 +35,22 @@ scripts/mac_paste_helper.py --server-url https://versicolor-charla-nonmutinously
 - The helper intentionally skipped existing archive `1046` on startup because `skip-existing` is the default; a fresh mobile archive is required to verify a new `action=applied` line.
 
 Current routing decision: Tailscale is still the preferred private path when its relay/proxy is healthy, but the active Mac helper now uses the fixed ngrok domain because the Tailscale HTTP API path is currently broken while ngrok is healthy.
+
+## Latency Optimization Snapshot
+
+- Time: 2026-05-19 14:55 Asia/Shanghai.
+- Original Tailscale path was rechecked:
+  - `tailscale ping 100.69.170.35` still succeeded via DERP.
+  - TCP ports `18765`, `18766`, and `18889` were open.
+  - HTTP checks to `http://100.69.170.35:18765/doubao/api/ping` still timed out or returned no valid response.
+- Fixed ngrok route was slow through normal `curl` DNS resolution, with repeated resolver timeouts.
+- Direct `curl --resolve` checks against ngrok edge IPv4 addresses returned HTTP 200 in roughly 1.1-1.8 seconds.
+- Helper changes:
+  - `mac_paste_helper.py` now accepts `--curl-resolve` and passes entries to curl.
+  - `run_foreground_paste_helper.sh` now defaults to ngrok IPv4 resolve entries.
+  - Foreground helper request timeout was reduced from `45` seconds to `4` seconds.
+  - Foreground helper poll interval was reduced from `0.5` seconds to `0.25` seconds.
+- Runtime change:
+  - The remote `doubao` room archive idle setting was reduced from `4.0` seconds to `1.2` seconds via `/api/settings`.
+
+Current expected latency: after the user stops input, the main fixed wait is now about `1.2s` for archive debounce plus roughly `1-2s` for ngrok API response and up to `0.25s` polling interval. This is still slower than a healthy private Tailscale relay, but avoids the previous long DNS/request stalls.

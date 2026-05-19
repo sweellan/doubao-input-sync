@@ -15,19 +15,25 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-def fetch_json(url: str, request_timeout_seconds: float) -> dict:
+def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
+    curl_args = [
+        "curl",
+        "-fsS",
+        "--max-time",
+        str(request_timeout_seconds),
+        "--connect-timeout",
+        str(min(2.0, request_timeout_seconds)),
+        "-H",
+        "ngrok-skip-browser-warning: 1",
+        "-A",
+        "doubao-input-sync-helper/1.0",
+    ]
+    for resolve_entry in curl_resolve:
+        curl_args.extend(["--resolve", resolve_entry])
+    curl_args.append(url)
+
     curl_proc = subprocess.run(
-        [
-            "curl",
-            "-fsS",
-            "--max-time",
-            str(request_timeout_seconds),
-            "-H",
-            "ngrok-skip-browser-warning: 1",
-            "-A",
-            "doubao-input-sync-helper/1.0",
-            url,
-        ],
+        curl_args,
         capture_output=True,
         check=False,
     )
@@ -36,6 +42,10 @@ def fetch_json(url: str, request_timeout_seconds: float) -> dict:
             return json.loads(curl_proc.stdout.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             pass
+
+    if curl_proc.returncode in {6, 7, 28}:
+        reason = curl_proc.stderr.decode("utf-8", errors="replace").strip() or f"curl exited {curl_proc.returncode}"
+        raise URLError(reason)
 
     request = Request(
         url,
@@ -48,20 +58,20 @@ def fetch_json(url: str, request_timeout_seconds: float) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float) -> dict:
+def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
     query = urlencode({"room_id": room_id})
     helper_url = f"{server_url.rstrip('/')}/api/helper-state?{query}"
     state_url = f"{server_url.rstrip('/')}/api/state?{query}"
 
     try:
-        return fetch_json(helper_url, request_timeout_seconds)
+        return fetch_json(helper_url, request_timeout_seconds, curl_resolve)
     except HTTPError as exc:
         if exc.code != 404:
             raise
     except (URLError, socket.timeout):
         pass
 
-    payload = fetch_json(state_url, request_timeout_seconds)
+    payload = fetch_json(state_url, request_timeout_seconds, curl_resolve)
     if "latest_archive" not in payload:
         history = payload.get("history") or []
         payload["latest_archive"] = history[-1] if history else None
@@ -90,6 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--room-id", default="doubao")
     parser.add_argument("--interval-seconds", type=float, default=0.5)
     parser.add_argument("--request-timeout-seconds", type=float, default=8.0)
+    parser.add_argument(
+        "--curl-resolve",
+        action="append",
+        default=[],
+        help="Optional curl --resolve entry. Repeat or pass comma-separated HOST:PORT:ADDR values.",
+    )
     parser.add_argument("--mode", choices=["clipboard", "paste"], default="clipboard")
     parser.add_argument(
         "--trigger",
@@ -108,8 +124,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_curl_resolve(values: list[str]) -> list[str]:
+    entries: list[str] = []
+    for value in values:
+        for entry in value.split(","):
+            entry = entry.strip()
+            if entry:
+                entries.append(entry)
+    return entries
+
+
 def main() -> int:
     args = build_parser().parse_args()
+    curl_resolve = parse_curl_resolve(args.curl_resolve)
     last_version = -1
     last_archive_id = -1
     applied_updates = 0
@@ -119,7 +146,7 @@ def main() -> int:
 
     while True:
         try:
-            payload = fetch_state(args.server_url, args.room_id, args.request_timeout_seconds)
+            payload = fetch_state(args.server_url, args.room_id, args.request_timeout_seconds, curl_resolve)
             connection_refused_count = 0
         except (URLError, socket.timeout) as exc:
             connection_refused_count += 1
