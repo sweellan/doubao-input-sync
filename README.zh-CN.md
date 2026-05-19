@@ -66,6 +66,7 @@ scripts/
   smoke_test.py
 docs/
   REMOTE_TAILSCALE_RELAY.md
+  OPERATIONS.md
 ```
 
 ## 快速开始
@@ -149,6 +150,10 @@ BASE_PATH=/doubao ./scripts/run_local_server.sh --host 127.0.0.1 --port 18766
 和继续追求“第二个长期免费的固定公网域名”相比，这条路通常更稳，也更容易长期维护。
 
 ## 常用命令
+
+日常排障和调整先看：
+
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 只启动 relay：
 

@@ -54,3 +54,12 @@ Current routing decision: Tailscale is still the preferred private path when its
   - The remote `doubao` room archive idle setting was reduced from `4.0` seconds to `1.2` seconds via `/api/settings`.
 
 Current expected latency: after the user stops input, the main fixed wait is now about `1.2s` for archive debounce plus roughly `1-2s` for ngrok API response and up to `0.25s` polling interval. This is still slower than a healthy private Tailscale relay, but avoids the previous long DNS/request stalls.
+
+## Archive Idle Correction
+
+- Time: 2026-05-19 15:00 Asia/Shanghai.
+- User clarified that archive idle time should not be reduced for desktop latency, because Doubao IME may revise the text after the first draft.
+- The user manually restored `archive_idle_seconds` to `3.7`.
+- Follow-up checks confirmed the remote room setting is `{'archive_idle_seconds': 3.7}`.
+
+Current rule: do not change `archive_idle_seconds` unless the user explicitly asks. Optimize helper/network/runner behavior instead.

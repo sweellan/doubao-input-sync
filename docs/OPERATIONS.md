@@ -1,0 +1,111 @@
+# Doubao Input Sync Operations
+
+This is the first place to check when Doubao Input Sync needs adjustment.
+
+## What Owns What
+
+- Project source and operational notes live here: `/Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot`.
+- There is currently no separate `doubao` Codex skill installed.
+- The foreground runner is managed through the existing `codex-desktop-control-plane` skill pattern, with runtime state under `__sys/automation/doubao_input_sync_control_plane/`.
+- The fixed public relay entry is `https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao`.
+- The historical private relay entry is `http://100.69.170.35:18765/doubao`; prefer it only when `/doubao/api/ping` and `/doubao/api/helper-state?room_id=doubao` return valid responses.
+
+## Current Helper Path
+
+The intended Mac helper is the foreground Terminal paste helper, not the LaunchAgent clipboard helper.
+
+Check current helper:
+
+```bash
+ps aux | rg -i 'mac_paste_helper|doubao-foreground-paste-helper|run_helper_daemon' | rg -v rg
+```
+
+The healthy helper command should include:
+
+```text
+--server-url https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao
+--room-id doubao
+--mode paste
+--request-timeout-seconds 4
+--interval-seconds 0.25
+--curl-resolve ...
+```
+
+The current foreground run log is under:
+
+```text
+__sys/automation/doubao_input_sync_control_plane/runtime/runs/
+```
+
+## Parameters
+
+Do not lower `archive_idle_seconds` just to improve desktop paste latency.
+
+That setting is the phone-side input stabilization window. Doubao IME may emit a draft and then revise it; if this window is too short, incomplete text can be archived and pasted. The user's current preferred value is `3.7`.
+
+Safe optimization targets:
+
+- helper request timeout
+- helper poll interval
+- curl DNS / `--resolve`
+- foreground runner health and logs
+- restoring the private Tailscale relay/proxy
+
+Risky optimization target:
+
+- `archive_idle_seconds`; only change it when the user explicitly asks.
+
+## Quick Health Checks
+
+Public ngrok route:
+
+```bash
+RES='versicolor-charla-nonmutinously.ngrok-free.dev:443:13.56.217.111'
+curl -sS --max-time 4 --connect-timeout 2 \
+  --resolve "$RES" \
+  -H 'ngrok-skip-browser-warning: 1' \
+  -A 'doubao-input-sync-helper/1.0' \
+  'https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao/api/helper-state?room_id=doubao'
+```
+
+Private Tailscale route:
+
+```bash
+curl -sS -i --max-time 5 \
+  -H 'ngrok-skip-browser-warning: 1' \
+  -A 'doubao-input-sync-helper/1.0' \
+  'http://100.69.170.35:18765/doubao/api/ping'
+```
+
+Room setting check:
+
+```bash
+curl -sS --max-time 4 --connect-timeout 2 \
+  --resolve "$RES" \
+  -H 'ngrok-skip-browser-warning: 1' \
+  -A 'doubao-input-sync-helper/1.0' \
+  'https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao/api/state?room_id=doubao' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("settings"))'
+```
+
+## Restart Helper
+
+If the helper needs to be restarted, prefer the control-plane runner so it keeps using the foreground Terminal permission surface.
+
+Current manual restart pattern:
+
+```bash
+cd /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot
+/usr/bin/python3 /Users/yangchao/.codex/skills/codex-desktop-control-plane/scripts/codex_control_plane.py run-once \
+  --root /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot/__sys/automation/doubao_input_sync_control_plane/runtime \
+  --job doubao-foreground-paste-helper
+```
+
+If control-plane says the job is already running but no helper process exists, inspect:
+
+```bash
+sqlite3 __sys/automation/doubao_input_sync_control_plane/runtime/state/control_plane.db \
+  'select id,job_id,status,started_at,ended_at,run_dir,error from runs order by id desc limit 5;'
+```
+
+Only mark a stale run as stopped after verifying the process is gone.
