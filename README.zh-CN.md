@@ -236,7 +236,7 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 更适合长期使用的方式，是给当前用户安装一个 macOS LaunchAgent：
 
 ```bash
-SERVER_URL="http://100.69.170.35:18765/doubao" \
+SERVER_URL="https://openclaw.ciaobella.cc/doubao" \
 ROOM_ID="testroom" \
 MODE="paste" \
 ./scripts/install_launch_agent.sh

@@ -63,3 +63,15 @@ Current expected latency: after the user stops input, the main fixed wait is now
 - Follow-up checks confirmed the remote room setting is `{'archive_idle_seconds': 3.7}`.
 
 Current rule: do not change `archive_idle_seconds` unless the user explicitly asks. Optimize helper/network/runner behavior instead.
+
+## Public Domain Migration
+
+- Time: 2026-05-20 15:12 Asia/Shanghai.
+- Public relay entry moved from `https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao` to `https://openclaw.ciaobella.cc/doubao`.
+- New route health checks passed:
+  - `/doubao/api/ping` returned `{"ok": true, ...}`.
+  - `/doubao/api/helper-state?room_id=doubao` returned HTTP 200 in about 1.1-1.3 seconds without hardcoded curl resolve entries.
+  - `/doubao/api/state?room_id=doubao` confirmed `archive_idle_seconds` remains `3.7`.
+- Helper configuration was moved to the new public route and old ngrok-specific `CURL_RESOLVE` entries were cleared.
+
+Current rule: use `https://openclaw.ciaobella.cc/doubao` as the default helper route. Keep `CURL_RESOLVE` empty unless DNS latency or resolver failures reappear.

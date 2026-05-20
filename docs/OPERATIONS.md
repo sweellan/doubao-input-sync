@@ -7,7 +7,7 @@ This is the first place to check when Doubao Input Sync needs adjustment.
 - Project source and operational notes live here: `/Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot`.
 - There is currently no separate `doubao` Codex skill installed.
 - The foreground runner is managed through the existing `codex-desktop-control-plane` skill pattern, with runtime state under `__sys/automation/doubao_input_sync_control_plane/`.
-- The fixed public relay entry is `https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao`.
+- The fixed public relay entry is `https://openclaw.ciaobella.cc/doubao`.
 - The historical private relay entry is `http://100.69.170.35:18765/doubao`; prefer it only when `/doubao/api/ping` and `/doubao/api/helper-state?room_id=doubao` return valid responses.
 
 ## Current Helper Path
@@ -23,12 +23,11 @@ ps aux | rg -i 'mac_paste_helper|doubao-foreground-paste-helper|run_helper_daemo
 The healthy helper command should include:
 
 ```text
---server-url https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao
+--server-url https://openclaw.ciaobella.cc/doubao
 --room-id doubao
 --mode paste
 --request-timeout-seconds 4
 --interval-seconds 0.25
---curl-resolve ...
 ```
 
 The current foreground run log is under:
@@ -57,15 +56,13 @@ Risky optimization target:
 
 ## Quick Health Checks
 
-Public ngrok route:
+Public route:
 
 ```bash
-RES='versicolor-charla-nonmutinously.ngrok-free.dev:443:13.56.217.111'
 curl -sS --max-time 4 --connect-timeout 2 \
-  --resolve "$RES" \
   -H 'ngrok-skip-browser-warning: 1' \
   -A 'doubao-input-sync-helper/1.0' \
-  'https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao/api/helper-state?room_id=doubao'
+  'https://openclaw.ciaobella.cc/doubao/api/helper-state?room_id=doubao'
 ```
 
 Private Tailscale route:
@@ -81,10 +78,9 @@ Room setting check:
 
 ```bash
 curl -sS --max-time 4 --connect-timeout 2 \
-  --resolve "$RES" \
   -H 'ngrok-skip-browser-warning: 1' \
   -A 'doubao-input-sync-helper/1.0' \
-  'https://versicolor-charla-nonmutinously.ngrok-free.dev/doubao/api/state?room_id=doubao' \
+  'https://openclaw.ciaobella.cc/doubao/api/state?room_id=doubao' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("settings"))'
 ```
 

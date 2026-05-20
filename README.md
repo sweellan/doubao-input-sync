@@ -230,7 +230,7 @@ If you start the helper directly from Terminal, that Terminal session must stay 
 For a persistent macOS setup, install the user LaunchAgent once:
 
 ```bash
-SERVER_URL="http://100.69.170.35:18765/doubao" \
+SERVER_URL="https://openclaw.ciaobella.cc/doubao" \
 ROOM_ID="testroom" \
 MODE="paste" \
 ./scripts/install_launch_agent.sh
