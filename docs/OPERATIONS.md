@@ -28,6 +28,7 @@ The healthy helper command should include:
 --mode paste
 --request-timeout-seconds 4
 --interval-seconds 0.25
+--curl-resolve openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237
 ```
 
 The current foreground run log is under:
@@ -46,7 +47,7 @@ Safe optimization targets:
 
 - helper request timeout
 - helper poll interval
-- curl DNS / `--resolve`
+- curl DNS / `--resolve`; currently keep `openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237`
 - foreground runner health and logs
 - restoring the private Tailscale relay/proxy
 
@@ -60,6 +61,7 @@ Public route:
 
 ```bash
 curl -sS --max-time 4 --connect-timeout 2 \
+  --resolve openclaw.ciaobella.cc:443:104.21.61.99 \
   -H 'ngrok-skip-browser-warning: 1' \
   -A 'doubao-input-sync-helper/1.0' \
   'https://openclaw.ciaobella.cc/doubao/api/helper-state?room_id=doubao'
@@ -78,6 +80,7 @@ Room setting check:
 
 ```bash
 curl -sS --max-time 4 --connect-timeout 2 \
+  --resolve openclaw.ciaobella.cc:443:104.21.61.99 \
   -H 'ngrok-skip-browser-warning: 1' \
   -A 'doubao-input-sync-helper/1.0' \
   'https://openclaw.ciaobella.cc/doubao/api/state?room_id=doubao' \

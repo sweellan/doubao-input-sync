@@ -75,3 +75,16 @@ Current rule: do not change `archive_idle_seconds` unless the user explicitly as
 - Helper configuration was moved to the new public route and old ngrok-specific `CURL_RESOLVE` entries were cleared.
 
 Current rule: use `https://openclaw.ciaobella.cc/doubao` as the default helper route. Keep `CURL_RESOLVE` empty unless DNS latency or resolver failures reappear.
+
+## OpenClaw DNS Timeout Repair
+
+- Time: 2026-05-20 15:24 Asia/Shanghai.
+- Symptom: helper process was still alive and pointed to `https://openclaw.ciaobella.cc/doubao`, but recent stdout was repeated `curl: (28) Resolving timed out after 2000ms`.
+- Plain `curl` to `https://openclaw.ciaobella.cc/doubao/api/ping` reproduced the DNS timeout.
+- `curl --resolve` with Cloudflare edge IPs returned HTTP 200 in about 1.1-1.3 seconds:
+  - `openclaw.ciaobella.cc:443:104.21.61.99`
+  - `openclaw.ciaobella.cc:443:172.67.208.237`
+- Helper config was updated to use those `CURL_RESOLVE` entries.
+- `/doubao/api/state?room_id=doubao` still reports `archive_idle_seconds` as `3.7`.
+
+Current rule: keep the OpenClaw `CURL_RESOLVE` entries while the local resolver keeps timing out. Do not change `archive_idle_seconds` for this issue.
