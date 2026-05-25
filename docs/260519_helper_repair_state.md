@@ -88,3 +88,17 @@ Current rule: use `https://openclaw.ciaobella.cc/doubao` as the default helper r
 - `/doubao/api/state?room_id=doubao` still reports `archive_idle_seconds` as `3.7`.
 
 Current rule: keep the OpenClaw `CURL_RESOLVE` entries while the local resolver keeps timing out. Do not change `archive_idle_seconds` for this issue.
+
+## Helper Exit Repair
+
+- Time: 2026-05-25 11:40 Asia/Shanghai.
+- Symptom: no `mac_paste_helper.py` process was running. The last control-plane run had ended at 2026-05-23 16:00 Asia/Shanghai with return code `1`.
+- Root cause in stderr: `http.client.RemoteDisconnected: Remote end closed connection without response` escaped the helper retry loop after curl had fallen through to urllib.
+- Remote route was still alive: `/doubao/api/ping` returned OK and `/doubao/api/state?room_id=doubao` showed `archive_idle_seconds` remained `3.7`.
+- Helper changes:
+  - curl failures now become retryable `URLError` values instead of falling through to urllib, except helper-state 404 for older relays.
+  - urllib `RemoteDisconnected` and related connection errors are wrapped as retryable `URLError`.
+  - foreground helper timeout increased from `4` seconds to `12` seconds.
+  - curl connect timeout now uses up to `8` seconds instead of being capped at `2` seconds, because Cloudflare TLS handshakes occasionally exceed 2 seconds.
+
+Current rule: transient OpenClaw network failures must keep the foreground helper alive and retrying. Do not change `archive_idle_seconds` for this issue.

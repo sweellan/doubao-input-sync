@@ -26,7 +26,7 @@ The healthy helper command should include:
 --server-url https://openclaw.ciaobella.cc/doubao
 --room-id doubao
 --mode paste
---request-timeout-seconds 4
+--request-timeout-seconds 12
 --interval-seconds 0.25
 --curl-resolve openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237
 ```

@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import time
+from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -22,7 +23,7 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
         "--max-time",
         str(request_timeout_seconds),
         "--connect-timeout",
-        str(min(2.0, request_timeout_seconds)),
+        str(min(8.0, request_timeout_seconds)),
         "-H",
         "ngrok-skip-browser-warning: 1",
         "-A",
@@ -32,19 +33,25 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
         curl_args.extend(["--resolve", resolve_entry])
     curl_args.append(url)
 
-    curl_proc = subprocess.run(
-        curl_args,
-        capture_output=True,
-        check=False,
-    )
-    if curl_proc.returncode == 0:
-        try:
-            return json.loads(curl_proc.stdout.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            pass
+    try:
+        curl_proc = subprocess.run(
+            curl_args,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        curl_proc = None
 
-    if curl_proc.returncode in {6, 7, 28}:
+    if curl_proc is not None:
+        if curl_proc.returncode == 0:
+            try:
+                return json.loads(curl_proc.stdout.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise URLError(f"curl returned invalid JSON: {exc}") from exc
+
         reason = curl_proc.stderr.decode("utf-8", errors="replace").strip() or f"curl exited {curl_proc.returncode}"
+        if curl_proc.returncode == 22 and "404" in reason:
+            raise HTTPError(url, 404, reason, hdrs=None, fp=None)
         raise URLError(reason)
 
     request = Request(
@@ -54,8 +61,11 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
             "User-Agent": "doubao-input-sync-helper/1.0",
         },
     )
-    with urlopen(request, timeout=request_timeout_seconds) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=request_timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (RemoteDisconnected, ConnectionError, TimeoutError, OSError) as exc:
+        raise URLError(str(exc)) from exc
 
 
 def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
