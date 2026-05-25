@@ -102,3 +102,16 @@ Current rule: keep the OpenClaw `CURL_RESOLVE` entries while the local resolver 
   - curl connect timeout now uses up to `8` seconds instead of being capped at `2` seconds, because Cloudflare TLS handshakes occasionally exceed 2 seconds.
 
 Current rule: transient OpenClaw network failures must keep the foreground helper alive and retrying. Do not change `archive_idle_seconds` for this issue.
+
+## Stream Transport Optimization
+
+- Time: 2026-05-25 15:25 Asia/Shanghai.
+- Symptom: helper stayed alive but felt slow. The 2026-05-25 run log showed many `SSL connection timeout` / `SSL_ERROR_SYSCALL` retries between successful `action=applied` entries.
+- Interpretation: the helper was still using high-frequency HTTPS polling. With `INTERVAL_SECONDS=0.25`, every poll launched a new `curl` process and a new Cloudflare TLS handshake, so intermittent public-route TLS failures directly turned into paste lag.
+- Existing relay support: `/doubao/api/stream?room_id=doubao` already provides SSE `room_state` events and sends keepalive pings every 15 seconds.
+- Helper changes:
+  - `mac_paste_helper.py` now supports `--transport stream` and consumes SSE via one long-lived curl connection.
+  - Polling remains available as `--transport poll` for fallback/debugging.
+  - `run_foreground_paste_helper.sh` now defaults `TRANSPORT=stream`.
+
+Current rule: for the public OpenClaw route, prefer SSE stream transport to avoid repeated TLS handshakes. Keep `archive_idle_seconds` at the user-selected value unless explicitly asked.

@@ -10,6 +10,7 @@ TRIGGER="${TRIGGER:-archive}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-12}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-0.25}"
 CURL_RESOLVE="${CURL_RESOLVE:-openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237}"
+TRANSPORT="${TRANSPORT:-stream}"
 
 cd "$PROJECT_ROOT"
 
@@ -20,6 +21,7 @@ echo "trigger=${TRIGGER}"
 echo "request_timeout_seconds=${REQUEST_TIMEOUT_SECONDS}"
 echo "interval_seconds=${INTERVAL_SECONDS}"
 echo "curl_resolve=${CURL_RESOLVE}"
+echo "transport=${TRANSPORT}"
 echo "mode=paste"
 
 helper_args=(
@@ -28,6 +30,7 @@ helper_args=(
   --interval-seconds "$INTERVAL_SECONDS" \
   --mode paste \
   --trigger "$TRIGGER" \
+  --transport "$TRANSPORT" \
   --request-timeout-seconds "$REQUEST_TIMEOUT_SECONDS"
 )
 

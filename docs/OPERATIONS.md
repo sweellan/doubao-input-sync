@@ -29,6 +29,7 @@ The healthy helper command should include:
 --request-timeout-seconds 12
 --interval-seconds 0.25
 --curl-resolve openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237
+--transport stream
 ```
 
 The current foreground run log is under:
@@ -47,6 +48,7 @@ Safe optimization targets:
 
 - helper request timeout
 - helper poll interval
+- helper transport; prefer SSE `stream` over HTTPS polling for the public route
 - curl DNS / `--resolve`; currently keep `openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237`
 - foreground runner health and logs
 - restoring the private Tailscale relay/proxy
