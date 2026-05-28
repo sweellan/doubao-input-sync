@@ -16,6 +16,7 @@
     claimedOk: false,
     capturePulseTimer: null,
     claimHeartbeatTimer: null,
+    lastAutoClearedArchiveId: 0,
   };
   const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
@@ -180,6 +181,7 @@
     const previousHistoryCount = state.lastHistoryCount;
     const nextHistoryCount = (payload.history || []).length;
     const sawNewArchive = nextHistoryCount > previousHistoryCount;
+    const latestArchive = nextHistoryCount ? payload.history[nextHistoryCount - 1] : null;
     const shouldClearFromServerState =
       state.role === "mobile" &&
       autoClearToggle.checked &&
@@ -212,9 +214,7 @@
       if (state.role === "mobile") {
         triggerCapturedPulse();
       }
-      if (state.role === "mobile" && autoClearToggle.checked) {
-        mobileEditor.value = "";
-      }
+      clearMobileEditorAfterArchive(latestArchive);
       return;
     }
 
@@ -291,8 +291,35 @@
     }
   }
 
-  async function pushDraft(text) {
-    saveState.textContent = "同步中…";
+  function clearMobileEditorAfterArchive(latestArchive) {
+    if (
+      state.role !== "mobile" ||
+      !autoClearToggle.checked ||
+      !mobileEditor ||
+      !latestArchive ||
+      latestArchive.archive_id <= state.lastAutoClearedArchiveId
+    ) {
+      return;
+    }
+
+    const archivedText = latestArchive.text || "";
+    if (mobileEditor.value && mobileEditor.value !== archivedText) {
+      saveState.textContent = "已捕捉并同步，新输入未清空";
+      return;
+    }
+
+    state.lastAutoClearedArchiveId = latestArchive.archive_id;
+    mobileEditor.value = "";
+    pushDraft("", {
+      source: "mobile-auto-clear",
+      startText: "同步清空状态中…",
+      doneText: "已捕捉并同步，已自动清空",
+      errorText: "已本地清空，网络恢复后同步空白状态",
+    });
+  }
+
+  async function pushDraft(text, options = {}) {
+    saveState.textContent = options.startText || "同步中…";
     state.pendingText = text;
     try {
       const response = await fetch(appPath("/api/update"), {
@@ -303,15 +330,15 @@
         body: JSON.stringify({
           room_id: state.roomId,
           text,
-          source: "mobile-web",
+          source: options.source || "mobile-web",
         }),
       });
       const payload = await response.json();
       renderRoomState(payload);
       state.pendingText = null;
-      saveState.textContent = "已同步";
+      saveState.textContent = options.doneText || "已同步";
     } catch (error) {
-      saveState.textContent = "网络中断，自动重试中…";
+      saveState.textContent = options.errorText || "网络中断，自动重试中…";
       scheduleDraftRetry();
     }
   }
