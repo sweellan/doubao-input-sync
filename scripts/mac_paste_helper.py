@@ -76,6 +76,68 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
         raise URLError(str(exc)) from exc
 
 
+def post_json(url: str, payload: dict, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
+    body_text = json.dumps(payload, ensure_ascii=False)
+    curl_args = [
+        "curl",
+        "-fsS",
+        "--max-time",
+        str(request_timeout_seconds),
+        "--connect-timeout",
+        str(min(8.0, request_timeout_seconds)),
+        "-H",
+        "ngrok-skip-browser-warning: 1",
+        "-H",
+        "Content-Type: application/json",
+        "-A",
+        "doubao-input-sync-helper/1.0",
+        "-X",
+        "POST",
+        "--data-binary",
+        body_text,
+    ]
+    for resolve_entry in curl_resolve:
+        curl_args.extend(["--resolve", resolve_entry])
+    curl_args.append(url)
+
+    try:
+        curl_proc = subprocess.run(
+            curl_args,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        curl_proc = None
+
+    if curl_proc is not None:
+        if curl_proc.returncode == 0:
+            try:
+                return json.loads(curl_proc.stdout.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise URLError(f"curl returned invalid JSON: {exc}") from exc
+
+        reason = curl_proc.stderr.decode("utf-8", errors="replace").strip() or f"curl exited {curl_proc.returncode}"
+        if curl_proc.returncode == 22 and "404" in reason:
+            raise HTTPError(url, 404, reason, hdrs=None, fp=None)
+        raise URLError(reason)
+
+    request = Request(
+        url,
+        data=body_text.encode("utf-8"),
+        headers={
+            "ngrok-skip-browser-warning": "1",
+            "User-Agent": "doubao-input-sync-helper/1.0",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=request_timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (RemoteDisconnected, ConnectionError, TimeoutError, OSError) as exc:
+        raise URLError(str(exc)) from exc
+
+
 def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
     query = urlencode({"room_id": room_id})
     helper_url = f"{server_url.rstrip('/')}/api/helper-state?{query}"
@@ -91,6 +153,28 @@ def fetch_state(server_url: str, room_id: str, request_timeout_seconds: float, c
 
     payload = fetch_json(state_url, request_timeout_seconds, curl_resolve)
     return normalize_payload(payload)
+
+
+def acknowledge_archive(
+    server_url: str,
+    room_id: str,
+    archive_id: int,
+    client_id: str,
+    action: str,
+    request_timeout_seconds: float,
+    curl_resolve: list[str],
+) -> dict:
+    return post_json(
+        f"{server_url.rstrip('/')}/api/archive-ack",
+        {
+            "room_id": room_id,
+            "archive_id": archive_id,
+            "client_id": client_id,
+            "action": action,
+        },
+        request_timeout_seconds,
+        curl_resolve,
+    )
 
 
 def parse_sse_event(lines: list[str]) -> dict | None:
@@ -209,6 +293,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--client-id",
+        default="",
+        help="Identifier used when acknowledging received archive items back to the relay.",
+    )
+    parser.add_argument(
         "--skip-existing",
         action="store_true",
         default=True,
@@ -233,6 +322,7 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
     text = payload.get("text", "")
     latest_archive = payload.get("latest_archive")
     trigger_ref = None
+    archive_id = 0
 
     if args.skip_existing and not state["startup_seeded"]:
         state["last_version"] = max(state["last_version"], version)
@@ -273,7 +363,6 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
 
     if args.dry_run:
         record["action"] = "dry_run"
-        print(json.dumps(record, ensure_ascii=False), flush=True)
     else:
         if sys.platform != "darwin":
             raise RuntimeError("mac_paste_helper.py only supports macOS live mode.")
@@ -283,7 +372,6 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
             else:
                 paste_to_active_app(text)
             record["action"] = "applied"
-            print(json.dumps(record, ensure_ascii=False), flush=True)
         except subprocess.CalledProcessError as exc:
             error_record = {
                 "status": "apply_failed",
@@ -298,6 +386,24 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
             print(json.dumps(error_record, ensure_ascii=False), flush=True)
             return False
 
+    if args.trigger == "archive" and archive_id > 0:
+        try:
+            ack_payload = acknowledge_archive(
+                args.server_url,
+                args.room_id,
+                archive_id,
+                args.client_id,
+                record["action"],
+                args.request_timeout_seconds,
+                state["curl_resolve"],
+            )
+            record["desktop_ack"] = "ok" if ack_payload.get("ok") else "failed"
+            record["desktop_ack_archive_id"] = archive_id
+        except (HTTPError, URLError, socket.timeout) as exc:
+            record["desktop_ack"] = "failed"
+            record["desktop_ack_error"] = str(getattr(exc, "reason", exc))
+
+    print(json.dumps(record, ensure_ascii=False), flush=True)
     state["applied_updates"] += 1
     return bool(args.stop_after_updates and state["applied_updates"] >= args.stop_after_updates)
 
@@ -305,11 +411,14 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
 def main() -> int:
     args = build_parser().parse_args()
     curl_resolve = parse_curl_resolve(args.curl_resolve)
+    if not args.client_id:
+        args.client_id = f"mac-helper-{socket.gethostname()}-{os.getpid()}"
     state = {
         "last_version": -1,
         "last_archive_id": -1,
         "applied_updates": 0,
         "startup_seeded": False,
+        "curl_resolve": curl_resolve,
     }
     connection_refused_count = 0
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
