@@ -36,7 +36,7 @@ This repo came from a series of small experiments rather than a clean product pl
 
 The main lesson was that network shape matters. If the phone page and the desktop helper are separated by a slow or unreliable path, repeated short polling can feel much worse than the actual input delay because every poll pays connection setup cost again. The helper now defaults to SSE stream mode to keep one update channel open, while polling remains available as a fallback for tunnels or proxies that do not handle long-lived responses well.
 
-The other lesson was that "captured" and "cleared" should be separate, explicit states. The mobile page now clears the local editor after a new archive and also syncs an empty draft back to the relay, so a reconnect or refresh is less likely to bring the old text back. It also arms a local fallback timer after each successful mobile sync; if the archive event is missed because the phone browser or network drops the stream, the page clears the unchanged draft after the same quiet window plus a short buffer. This fallback does not shorten the capture wait, and it will not clear text that the user has continued editing.
+The other lesson was that "captured" and "cleared" should be separate, explicit states. A settled archive only means the relay captured the text; it does not prove the desktop helper has received it. The helper now acknowledges each archive after it copies or attempts to paste the text, and the mobile page clears only after that desktop acknowledgement. If the phone misses the live stream event, a local fallback timer re-fetches state and waits for the same acknowledgement. This keeps the clear action aligned with "the desktop side has picked this up" without shortening the capture wait or clearing text that the user has continued editing.
 
 ## Features
 
@@ -50,8 +50,8 @@ The other lesson was that "captured" and "cleared" should be separate, explicit 
 - Temporary public testing via tunnel tools if phone and desktop are not on the same LAN
 - Subtle visual flash when a settled batch is captured and synced
 - Polling fallback when SSE reconnect is flaky over a public tunnel
-- Mobile auto-clear syncs the empty state back to the relay after archive
-- Local auto-clear fallback for phone browsers that miss the archive stream event
+- Desktop helper acknowledgement before mobile auto-clear
+- Local acknowledgement-check fallback for phone browsers that miss the archive stream event
 
 ## How It Works
 
@@ -65,6 +65,9 @@ Local Python relay
 macOS helper
   -> watches latest archive item
   -> copies or pastes into active app
+  -> POST /api/archive-ack
+Phone browser
+  -> clears only after the desktop acknowledgement
 ```
 
 ## Repository Layout
@@ -233,7 +236,7 @@ Clones do not conflict with each other by default.
 
 Each local process keeps its own in-memory state, so separate users who clone and run the project on their own machines get fully isolated archives. Data only mixes when multiple clients intentionally talk to the same running relay server and use the same `room_id`.
 
-The mobile page also includes an `Auto clear after archive` option, and it is enabled by default. Clear is driven by archive state, not by a shorter input timer: when an archive is observed, the page clears the editor and pushes an empty draft back to the relay. If the phone misses that archive event, a local fallback timer clears only when the editor still contains the exact text that was previously synced. Turn the option off if you prefer to review text before clearing.
+The mobile page also includes an `Auto clear after archive` option, and it is enabled by default. Clear is driven by desktop acknowledgement, not by a shorter input timer: the helper marks an archive as received after it copies or attempts to paste that archive, and the phone clears only when it sees that mark. If the phone misses the stream event, a local fallback timer re-fetches state and clears only when the editor still contains the exact text that was acknowledged. Turn the option off if you prefer to review text before clearing.
 
 ## Pairing Rules
 

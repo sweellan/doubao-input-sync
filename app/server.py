@@ -71,6 +71,9 @@ class ArchiveEntry:
     source: str
     version: int
     archived_at: str
+    desktop_received_at: str = ""
+    desktop_received_by: str = ""
+    desktop_delivery_action: str = ""
 
     def payload(self) -> Dict[str, object]:
         return asdict(self)
@@ -150,6 +153,9 @@ class RoomState:
                     source=entry.source,
                     version=entry.version,
                     archived_at=entry.archived_at,
+                    desktop_received_at=entry.desktop_received_at,
+                    desktop_received_by=entry.desktop_received_by,
+                    desktop_delivery_action=entry.desktop_delivery_action,
                 )
                 for entry in self.history
             ],
@@ -291,6 +297,36 @@ class RoomStore:
             "released": released,
             "role": role,
             "room_id": room_id,
+            "state": payload,
+        }
+
+    def acknowledge_archive(self, room_id: str, archive_id: int, client_id: str, action: str) -> Dict[str, object]:
+        with self._lock:
+            room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
+            target = next((entry for entry in room.history if entry.archive_id == archive_id), None)
+            if target is None:
+                return {
+                    "ok": False,
+                    "error": "archive_id not found",
+                    "room_id": room_id,
+                    "archive_id": archive_id,
+                    "state": room.payload(),
+                }
+
+            target.desktop_received_at = target.desktop_received_at or utc_now_iso()
+            target.desktop_received_by = client_id
+            target.desktop_delivery_action = action
+            payload = room.payload()
+            subscribers = list(self._subscribers.get(room_id, []))
+
+        for subscriber in subscribers:
+            subscriber.put(payload)
+
+        return {
+            "ok": True,
+            "room_id": room_id,
+            "archive_id": archive_id,
             "state": payload,
         }
 
@@ -443,6 +479,10 @@ class RelayHandler(BaseHTTPRequestHandler):
             self._handle_release()
             return
 
+        if path == "/api/archive-ack":
+            self._handle_archive_ack()
+            return
+
         if path != "/api/update":
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -524,6 +564,34 @@ class RelayHandler(BaseHTTPRequestHandler):
 
         result = self.store.release_role(room_id=room_id, role=role, client_id=client_id)
         self._send_json(result, status=HTTPStatus.OK)
+
+    def _handle_archive_ack(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length) or b"{}")
+        room_id = (payload.get("room_id") or self.default_room).strip()
+        client_id = (payload.get("client_id") or "desktop-helper").strip()
+        action = (payload.get("action") or "received").strip()
+
+        if not room_id:
+            self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            archive_id = int(payload.get("archive_id"))
+        except (TypeError, ValueError):
+            self._send_json({"error": "archive_id must be an integer"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if archive_id <= 0:
+            self._send_json({"error": "archive_id must be positive"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        result = self.store.acknowledge_archive(
+            room_id=room_id,
+            archive_id=archive_id,
+            client_id=client_id,
+            action=action,
+        )
+        status = HTTPStatus.OK if result["ok"] else HTTPStatus.NOT_FOUND
+        self._send_json(result, status=status)
 
     def _room_id_from_query(self, query: str) -> str:
         params = parse_qs(query)

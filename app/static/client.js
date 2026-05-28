@@ -17,7 +17,8 @@
     capturePulseTimer: null,
     claimHeartbeatTimer: null,
     lastAutoClearedArchiveId: 0,
-    autoClearTimer: null,
+    desktopAckCheckTimer: null,
+    desktopAckCheckAttempts: 0,
   };
   const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
@@ -126,7 +127,7 @@
   function persistLocalPreferences() {
     window.localStorage.setItem(autoClearStorageKey(), autoClearToggle.checked ? "1" : "0");
     if (!autoClearToggle.checked) {
-      cancelScheduledAutoClear();
+      cancelScheduledDesktopAckCheck();
     }
   }
 
@@ -212,13 +213,16 @@
     }
     renderHistory(payload.history || []);
 
+    if (clearMobileEditorAfterDesktopAck(latestArchive)) {
+      return;
+    }
+
     if (sawNewArchive) {
-      saveState.textContent = autoClearToggle.checked ? "已捕捉并同步，已自动清空" : "已捕捉并同步";
+      saveState.textContent = autoClearToggle.checked ? "已捕捉，等待电脑端接收" : "已捕捉并同步";
       triggerFlash("已捕捉并同步一批文字");
       if (state.role === "mobile") {
         triggerCapturedPulse();
       }
-      clearMobileEditorAfterArchive(latestArchive);
       return;
     }
 
@@ -295,21 +299,23 @@
     }
   }
 
-  function clearMobileEditorAfterArchive(latestArchive) {
+  function clearMobileEditorAfterDesktopAck(latestArchive) {
     if (
       state.role !== "mobile" ||
       !autoClearToggle.checked ||
       !mobileEditor ||
       !latestArchive ||
+      !latestArchive.desktop_received_at ||
       latestArchive.archive_id <= state.lastAutoClearedArchiveId
     ) {
-      return;
+      return false;
     }
 
     const archivedText = latestArchive.text || "";
     if (mobileEditor.value && mobileEditor.value !== archivedText) {
-      saveState.textContent = "已捕捉并同步，新输入未清空";
-      return;
+      saveState.textContent = "电脑端已接收，新输入未清空";
+      state.lastAutoClearedArchiveId = latestArchive.archive_id;
+      return false;
     }
 
     state.lastAutoClearedArchiveId = latestArchive.archive_id;
@@ -317,18 +323,20 @@
     pushDraft("", {
       source: "mobile-auto-clear",
       startText: "同步清空状态中…",
-      doneText: "已捕捉并同步，已自动清空",
+      doneText: "电脑端已接收，已自动清空",
       errorText: "已本地清空，网络恢复后同步空白状态",
       scheduleAutoClear: false,
     });
+    return true;
   }
 
-  function cancelScheduledAutoClear() {
-    if (!state.autoClearTimer) {
+  function cancelScheduledDesktopAckCheck() {
+    if (!state.desktopAckCheckTimer) {
       return;
     }
-    window.clearTimeout(state.autoClearTimer);
-    state.autoClearTimer = null;
+    window.clearTimeout(state.desktopAckCheckTimer);
+    state.desktopAckCheckTimer = null;
+    state.desktopAckCheckAttempts = 0;
   }
 
   function getArchiveIdleSeconds() {
@@ -336,26 +344,39 @@
     return Number.isFinite(value) && value >= 0.5 ? value : 2.0;
   }
 
-  function scheduleLocalAutoClearFallback(textAtSync) {
+  function scheduleDesktopAckCheck(textAtSync, delayMs) {
     if (state.role !== "mobile" || !autoClearToggle.checked || !textAtSync.trim()) {
       return;
     }
 
-    cancelScheduledAutoClear();
-    state.autoClearTimer = window.setTimeout(function () {
-      state.autoClearTimer = null;
+    if (state.desktopAckCheckAttempts >= 8) {
+      return;
+    }
+
+    if (state.desktopAckCheckTimer) {
+      window.clearTimeout(state.desktopAckCheckTimer);
+    }
+
+    state.desktopAckCheckTimer = window.setTimeout(async function () {
+      state.desktopAckCheckTimer = null;
       if (!autoClearToggle.checked || mobileEditor.value !== textAtSync) {
         return;
       }
-      mobileEditor.value = "";
-      pushDraft("", {
-        source: "mobile-auto-clear",
-        startText: "同步清空状态中…",
-        doneText: "已捕捉并同步，已自动清空",
-        errorText: "已本地清空，网络恢复后同步空白状态",
-        scheduleAutoClear: false,
-      });
-    }, (getArchiveIdleSeconds() + 1) * 1000);
+      state.desktopAckCheckAttempts += 1;
+      try {
+        await fetchState();
+      } finally {
+        if (mobileEditor.value === textAtSync) {
+          saveState.textContent = "已捕捉，等待电脑端接收";
+          scheduleDesktopAckCheck(textAtSync, 2000);
+        }
+      }
+    }, delayMs);
+  }
+
+  function scheduleDesktopAckFallback(textAtSync) {
+    cancelScheduledDesktopAckCheck();
+    scheduleDesktopAckCheck(textAtSync, (getArchiveIdleSeconds() + 1) * 1000);
   }
 
   async function pushDraft(text, options = {}) {
@@ -378,7 +399,7 @@
       state.pendingText = null;
       saveState.textContent = options.doneText || "已同步";
       if (options.scheduleAutoClear !== false) {
-        scheduleLocalAutoClearFallback(text);
+        scheduleDesktopAckFallback(text);
       }
     } catch (error) {
       saveState.textContent = options.errorText || "网络中断，自动重试中…";
@@ -601,7 +622,7 @@
 
     mobileEditor.addEventListener("input", function () {
       saveState.textContent = "输入中，自动同步中…";
-      cancelScheduledAutoClear();
+      cancelScheduledDesktopAckCheck();
       if (state.draftSaveTimer) {
         window.clearTimeout(state.draftSaveTimer);
       }
