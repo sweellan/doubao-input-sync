@@ -1,23 +1,42 @@
 # Doubao Input Sync
 
-Turn phone-side text input into desktop text insertion.
+Use the free Doubao mobile input method as a desktop text input surface.
 
-`Doubao Input Sync` is a tiny local relay that lets you type or paste a long block of text on your phone, have it auto-sync to your computer, keep an archive of stable snapshots, and optionally auto-paste the final text into the desktop app that currently owns the cursor.
+`Doubao Input Sync` is a tiny relay for people who like dictating, rewriting, or polishing text on a phone but need the final text inside a desktop app. You type or speak on the phone, the relay waits for the text to stop changing, then the Mac helper can copy or paste the settled result into the app that currently owns the cursor.
+
+You can think of it as a lightweight, self-hosted, "poor-person's Typeless" style bridge. It is not a replacement for polished commercial voice input tools, and it does not implement an input method or AI model. It only moves the result from the phone to the computer.
 
 This is an unofficial utility and is not affiliated with Doubao or its input method product team.
 
-Friendly disclaimer: this repo was built as a practical personal tool, not as polished production software. I am not a professional developer, so installation and edge cases may still be a little rough 🙈. In practice, the easiest path is often to let an AI coding agent help you run or tweak it.
+Friendly disclaimer: this repo was built as a practical personal tool, not as polished production software. Installation and edge cases may still be rough. In practice, the easiest path is often to let an AI coding agent help you run or tweak it.
 
 Chinese documentation: [README.zh-CN.md](README.zh-CN.md)
 
 ## Why This Exists
 
-Some mobile-first input experiences are excellent, but the desktop version is missing or less convenient. This project does not try to reimplement the input method itself. It only bridges the result:
+Doubao's mobile input method is free and surprisingly useful for long Chinese text, voice input, and quick rewriting. The awkward part is that the best input surface is often the phone, while the work surface is usually a desktop editor, browser, document, or chat app.
+
+This project keeps those roles separate:
 
 - phone input area
 - local relay server
 - desktop monitor page
 - optional auto-paste to the current cursor position on macOS
+
+The goal is simple: your phone becomes the input surface, and your computer stays the work surface.
+
+## How This Project Evolved
+
+This repo came from a series of small experiments rather than a clean product plan:
+
+- first, a local relay proved that phone text could show up on a desktop page reliably
+- then the relay added archive-on-idle, because mobile input methods often revise text in several passes before the final wording settles
+- then the macOS helper added clipboard and paste modes, so the final archive could land in the current desktop app
+- then the networking path went through LAN use, temporary public tunnels, fixed subpath deployment, and remote relay mode
+
+The main lesson was that network shape matters. If the phone page and the desktop helper are separated by a slow or unreliable path, repeated short polling can feel much worse than the actual input delay because every poll pays connection setup cost again. The helper now defaults to SSE stream mode to keep one update channel open, while polling remains available as a fallback for tunnels or proxies that do not handle long-lived responses well.
+
+The other lesson was that "captured" and "cleared" should be separate, explicit states. A settled archive only means the relay captured the text; it does not prove the desktop helper has received it. The helper now acknowledges each archive after it copies or attempts to paste the text, and the mobile page clears only after that desktop acknowledgement. If the phone misses the live stream event, a local fallback timer re-fetches state and waits for the same acknowledgement. This keeps the clear action aligned with "the desktop side has picked this up" without shortening the capture wait or clearing text that the user has continued editing.
 
 ## Features
 
@@ -31,6 +50,8 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 - Temporary public testing via tunnel tools if phone and desktop are not on the same LAN
 - Subtle visual flash when a settled batch is captured and synced
 - Polling fallback when SSE reconnect is flaky over a public tunnel
+- Desktop helper acknowledgement before mobile auto-clear
+- Local acknowledgement-check fallback for phone browsers that miss the archive stream event
 
 ## How It Works
 
@@ -44,6 +65,9 @@ Local Python relay
 macOS helper
   -> watches latest archive item
   -> copies or pastes into active app
+  -> POST /api/archive-ack
+Phone browser
+  -> clears only after the desktop acknowledgement
 ```
 
 ## Repository Layout
@@ -65,10 +89,20 @@ scripts/
   mac_paste_helper.py
   smoke_test.py
 docs/
-  REMOTE_TAILSCALE_RELAY.md
+  REMOTE_RELAY.md
 ```
 
 ## Quick Start
+
+```bash
+git clone https://github.com/sweellan/doubao-input-sync.git
+cd doubao-input-sync
+./scripts/run_autopaste_local.sh
+```
+
+The script starts a local relay if needed, generates a random room id, and prints a phone page URL. Open that URL on your phone, keep the target desktop input focused, and send or dictate text from the phone page.
+
+If direct paste does nothing on macOS, grant Accessibility permission to the app that runs the helper, such as Terminal, iTerm, or Codex.
 
 ### 1. Start the local relay server
 
@@ -169,6 +203,12 @@ Safe dry run:
 MODE=clipboard ./scripts/run_autopaste_local.sh --dry-run
 ```
 
+Use clipboard mode without direct paste:
+
+```bash
+MODE=clipboard ./scripts/run_autopaste_local.sh
+```
+
 Expose the local relay through a temporary public tunnel:
 
 ```bash
@@ -196,7 +236,7 @@ Clones do not conflict with each other by default.
 
 Each local process keeps its own in-memory state, so separate users who clone and run the project on their own machines get fully isolated archives. Data only mixes when multiple clients intentionally talk to the same running relay server and use the same `room_id`.
 
-The mobile page also includes an `Auto clear after archive` option, and it is enabled by default. Turn it off if you prefer to review text before clearing.
+The mobile page also includes an `Auto clear after archive` option, and it is enabled by default. Clear is driven by desktop acknowledgement, not by a shorter input timer: the helper marks an archive as received after it copies or attempts to paste that archive, and the phone clears only when it sees that mark. If the phone misses the stream event, a local fallback timer re-fetches state and clears only when the editor still contains the exact text that was acknowledged. Turn the option off if you prefer to review text before clearing.
 
 ## Pairing Rules
 
@@ -221,7 +261,7 @@ For quick demos, `tunnelmole` is still fine. For daily use, a named `cloudflared
 
 ## Remote Relay Mode
 
-If the phone input page already lives on a remote Linux relay and your Mac only needs to consume that relay over Tailscale, see [docs/REMOTE_TAILSCALE_RELAY.md](docs/REMOTE_TAILSCALE_RELAY.md).
+If the phone input page already lives on a remote relay and your Mac only needs to consume that relay over HTTPS, Tailscale, or another private route, see [docs/REMOTE_RELAY.md](docs/REMOTE_RELAY.md).
 
 ## Running Without An Open Terminal
 
@@ -230,8 +270,8 @@ If you start the helper directly from Terminal, that Terminal session must stay 
 For a persistent macOS setup, install the user LaunchAgent once:
 
 ```bash
-SERVER_URL="http://100.69.170.35:18765/doubao" \
-ROOM_ID="testroom" \
+SERVER_URL="https://<your-host>/doubao" \
+ROOM_ID="<your-room>" \
 MODE="paste" \
 ./scripts/install_launch_agent.sh
 ```

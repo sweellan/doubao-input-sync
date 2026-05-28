@@ -20,13 +20,23 @@ SERVER_URL="${SERVER_URL:?SERVER_URL is required in helper.env}"
 ROOM_ID="${ROOM_ID:?ROOM_ID is required in helper.env}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"
-REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-8}"
+REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-12}"
+TRANSPORT="${TRANSPORT:-stream}"
+CURL_RESOLVE="${CURL_RESOLVE:-}"
 
 cd "$PROJECT_ROOT"
 
-exec /usr/bin/python3 scripts/mac_paste_helper.py \
-  --server-url "$SERVER_URL" \
-  --room-id "$ROOM_ID" \
-  --mode "$MODE" \
-  --trigger "$TRIGGER" \
+helper_args=(
+  --server-url "$SERVER_URL"
+  --room-id "$ROOM_ID"
+  --mode "$MODE"
+  --trigger "$TRIGGER"
+  --transport "$TRANSPORT"
   --request-timeout-seconds "$REQUEST_TIMEOUT_SECONDS"
+)
+
+if [[ -n "$CURL_RESOLVE" ]]; then
+  helper_args+=(--curl-resolve "$CURL_RESOLVE")
+fi
+
+exec /usr/bin/python3 scripts/mac_paste_helper.py "${helper_args[@]}"

@@ -155,8 +155,11 @@ def main() -> int:
 
             sse_thread.join(timeout=5)
             helper_exit = helper_proc.wait(timeout=5)
+            acknowledged_state = get_state(server_url, args.room_id)
 
             helper_output = helper_log.read_text(encoding="utf-8").strip().splitlines()
+            acknowledged_history = acknowledged_state.get("history") or [{}]
+            latest_acknowledged = acknowledged_history[-1]
             report = {
                 "status": "passed",
                 "server_url": server_url,
@@ -164,6 +167,7 @@ def main() -> int:
                 "posted": posted,
                 "state": state,
                 "archived_state": archived_state,
+                "acknowledged_state": acknowledged_state,
                 "sse_events": sse_events,
                 "helper_exit_code": helper_exit,
                 "helper_output": helper_output,
@@ -172,6 +176,7 @@ def main() -> int:
                     "sse_received_update": any(event.get("version") == posted.get("version") for event in sse_events),
                     "helper_saw_update": any('"status": "updated"' in line for line in helper_output),
                     "history_archived_latest": bool(archived_state.get("history")) and archived_state["history"][-1].get("text") == "来自手机端的同步测试文本",
+                    "helper_acknowledged_archive": latest_acknowledged.get("desktop_received_at") and latest_acknowledged.get("desktop_delivery_action") == "dry_run",
                 },
             }
 

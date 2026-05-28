@@ -14,6 +14,9 @@ PORT="${PORT:-18766}"
 BASE_PATH="${BASE_PATH:-}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"
+REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-12}"
+TRANSPORT="${TRANSPORT:-stream}"
+CURL_RESOLVE="${CURL_RESOLVE:-}"
 ARCHIVE_IDLE_SECONDS_VALUE="${ARCHIVE_IDLE_SECONDS:-2.0}"
 
 SERVER_URL="${SERVER_URL:-http://127.0.0.1:${PORT}${BASE_PATH}}"
@@ -63,7 +66,7 @@ if ! curl -fsS "${SERVER_URL}/api/ping" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Auto paste helper is watching ${SERVER_URL} room=${ROOM_ID} mode=${MODE} trigger=${TRIGGER} archive_idle_seconds=${ARCHIVE_IDLE_SECONDS_VALUE}"
+echo "Auto paste helper is watching ${SERVER_URL} room=${ROOM_ID} mode=${MODE} trigger=${TRIGGER} transport=${TRANSPORT} archive_idle_seconds=${ARCHIVE_IDLE_SECONDS_VALUE}"
 if [[ "$IS_LOCAL_SERVER_URL" == "1" ]]; then
 echo "Phone page: ${SERVER_URL/127.0.0.1/$(python3 - <<'PY'
 import socket
@@ -81,9 +84,17 @@ else
 echo "Remote phone page base should be managed by the remote relay setup."
 fi
 
-python3 scripts/mac_paste_helper.py \
-  --server-url "$SERVER_URL" \
-  --room-id "$ROOM_ID" \
-  --mode "$MODE" \
-  --trigger "$TRIGGER" \
-  "${@:1}"
+helper_args=(
+  --server-url "$SERVER_URL"
+  --room-id "$ROOM_ID"
+  --mode "$MODE"
+  --trigger "$TRIGGER"
+  --transport "$TRANSPORT"
+  --request-timeout-seconds "$REQUEST_TIMEOUT_SECONDS"
+)
+
+if [[ -n "$CURL_RESOLVE" ]]; then
+  helper_args+=(--curl-resolve "$CURL_RESOLVE")
+fi
+
+python3 scripts/mac_paste_helper.py "${helper_args[@]}" "${@:1}"
