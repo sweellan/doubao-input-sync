@@ -25,6 +25,19 @@ This project keeps those roles separate:
 
 The goal is simple: your phone becomes the input surface, and your computer stays the work surface.
 
+## How This Project Evolved
+
+This repo came from a series of small experiments rather than a clean product plan:
+
+- first, a local relay proved that phone text could show up on a desktop page reliably
+- then the relay added archive-on-idle, because mobile input methods often revise text in several passes before the final wording settles
+- then the macOS helper added clipboard and paste modes, so the final archive could land in the current desktop app
+- then the networking path went through LAN use, temporary public tunnels, fixed subpath deployment, and remote relay mode
+
+The main lesson was that network shape matters. If the phone page and the desktop helper are separated by a slow or unreliable path, repeated short polling can feel much worse than the actual input delay because every poll pays connection setup cost again. The helper now defaults to SSE stream mode to keep one update channel open, while polling remains available as a fallback for tunnels or proxies that do not handle long-lived responses well.
+
+The other lesson was that "captured" and "cleared" should be separate, explicit states. The mobile page now clears the local editor after a new archive and also syncs an empty draft back to the relay, so a reconnect or refresh is less likely to bring the old text back.
+
 ## Features
 
 - Auto-sync while typing, no explicit send button
@@ -37,6 +50,7 @@ The goal is simple: your phone becomes the input surface, and your computer stay
 - Temporary public testing via tunnel tools if phone and desktop are not on the same LAN
 - Subtle visual flash when a settled batch is captured and synced
 - Polling fallback when SSE reconnect is flaky over a public tunnel
+- Mobile auto-clear syncs the empty state back to the relay after archive
 
 ## How It Works
 
