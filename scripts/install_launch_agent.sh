@@ -14,10 +14,12 @@ SERVER_URL="${SERVER_URL:-}"
 ROOM_ID="${ROOM_ID:-}"
 MODE="${MODE:-paste}"
 TRIGGER="${TRIGGER:-archive}"
-REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-8}"
+REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-12}"
+TRANSPORT="${TRANSPORT:-stream}"
+CURL_RESOLVE="${CURL_RESOLVE:-}"
 
 if [[ -z "$SERVER_URL" || -z "$ROOM_ID" ]]; then
-  echo "Usage: SERVER_URL=<url> ROOM_ID=<room> [MODE=paste] [TRIGGER=archive] ./scripts/install_launch_agent.sh" >&2
+  echo "Usage: SERVER_URL=<url> ROOM_ID=<room> [MODE=paste] [TRIGGER=archive] [TRANSPORT=stream] [CURL_RESOLVE=host:443:ip] ./scripts/install_launch_agent.sh" >&2
   exit 1
 fi
 
@@ -29,6 +31,8 @@ ROOM_ID="${ROOM_ID}"
 MODE="${MODE}"
 TRIGGER="${TRIGGER}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS}"
+TRANSPORT="${TRANSPORT}"
+CURL_RESOLVE="${CURL_RESOLVE}"
 EOF
 
 cat > "$PLIST_PATH" <<EOF

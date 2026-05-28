@@ -1,23 +1,29 @@
 # Doubao Input Sync
 
-Turn phone-side text input into desktop text insertion.
+Use the free Doubao mobile input method as a desktop text input surface.
 
-`Doubao Input Sync` is a tiny local relay that lets you type or paste a long block of text on your phone, have it auto-sync to your computer, keep an archive of stable snapshots, and optionally auto-paste the final text into the desktop app that currently owns the cursor.
+`Doubao Input Sync` is a tiny relay for people who like dictating, rewriting, or polishing text on a phone but need the final text inside a desktop app. You type or speak on the phone, the relay waits for the text to stop changing, then the Mac helper can copy or paste the settled result into the app that currently owns the cursor.
+
+You can think of it as a lightweight, self-hosted, "poor-person's Typeless" style bridge. It is not a replacement for polished commercial voice input tools, and it does not implement an input method or AI model. It only moves the result from the phone to the computer.
 
 This is an unofficial utility and is not affiliated with Doubao or its input method product team.
 
-Friendly disclaimer: this repo was built as a practical personal tool, not as polished production software. I am not a professional developer, so installation and edge cases may still be a little rough 🙈. In practice, the easiest path is often to let an AI coding agent help you run or tweak it.
+Friendly disclaimer: this repo was built as a practical personal tool, not as polished production software. Installation and edge cases may still be rough. In practice, the easiest path is often to let an AI coding agent help you run or tweak it.
 
 Chinese documentation: [README.zh-CN.md](README.zh-CN.md)
 
 ## Why This Exists
 
-Some mobile-first input experiences are excellent, but the desktop version is missing or less convenient. This project does not try to reimplement the input method itself. It only bridges the result:
+Doubao's mobile input method is free and surprisingly useful for long Chinese text, voice input, and quick rewriting. The awkward part is that the best input surface is often the phone, while the work surface is usually a desktop editor, browser, document, or chat app.
+
+This project keeps those roles separate:
 
 - phone input area
 - local relay server
 - desktop monitor page
 - optional auto-paste to the current cursor position on macOS
+
+The goal is simple: your phone becomes the input surface, and your computer stays the work surface.
 
 ## Features
 
@@ -65,10 +71,20 @@ scripts/
   mac_paste_helper.py
   smoke_test.py
 docs/
-  REMOTE_TAILSCALE_RELAY.md
+  REMOTE_RELAY.md
 ```
 
 ## Quick Start
+
+```bash
+git clone https://github.com/sweellan/doubao-input-sync.git
+cd doubao-input-sync
+./scripts/run_autopaste_local.sh
+```
+
+The script starts a local relay if needed, generates a random room id, and prints a phone page URL. Open that URL on your phone, keep the target desktop input focused, and send or dictate text from the phone page.
+
+If direct paste does nothing on macOS, grant Accessibility permission to the app that runs the helper, such as Terminal, iTerm, or Codex.
 
 ### 1. Start the local relay server
 
@@ -169,6 +185,12 @@ Safe dry run:
 MODE=clipboard ./scripts/run_autopaste_local.sh --dry-run
 ```
 
+Use clipboard mode without direct paste:
+
+```bash
+MODE=clipboard ./scripts/run_autopaste_local.sh
+```
+
 Expose the local relay through a temporary public tunnel:
 
 ```bash
@@ -221,7 +243,7 @@ For quick demos, `tunnelmole` is still fine. For daily use, a named `cloudflared
 
 ## Remote Relay Mode
 
-If the phone input page already lives on a remote Linux relay and your Mac only needs to consume that relay over Tailscale, see [docs/REMOTE_TAILSCALE_RELAY.md](docs/REMOTE_TAILSCALE_RELAY.md).
+If the phone input page already lives on a remote relay and your Mac only needs to consume that relay over HTTPS, Tailscale, or another private route, see [docs/REMOTE_RELAY.md](docs/REMOTE_RELAY.md).
 
 ## Running Without An Open Terminal
 
@@ -230,8 +252,8 @@ If you start the helper directly from Terminal, that Terminal session must stay 
 For a persistent macOS setup, install the user LaunchAgent once:
 
 ```bash
-SERVER_URL="http://100.69.170.35:18765/doubao" \
-ROOM_ID="testroom" \
+SERVER_URL="https://<your-host>/doubao" \
+ROOM_ID="<your-room>" \
 MODE="paste" \
 ./scripts/install_launch_agent.sh
 ```
