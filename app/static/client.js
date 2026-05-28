@@ -17,6 +17,7 @@
     capturePulseTimer: null,
     claimHeartbeatTimer: null,
     lastAutoClearedArchiveId: 0,
+    autoClearTimer: null,
   };
   const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
@@ -124,6 +125,9 @@
 
   function persistLocalPreferences() {
     window.localStorage.setItem(autoClearStorageKey(), autoClearToggle.checked ? "1" : "0");
+    if (!autoClearToggle.checked) {
+      cancelScheduledAutoClear();
+    }
   }
 
   function triggerFlash(message) {
@@ -315,7 +319,43 @@
       startText: "同步清空状态中…",
       doneText: "已捕捉并同步，已自动清空",
       errorText: "已本地清空，网络恢复后同步空白状态",
+      scheduleAutoClear: false,
     });
+  }
+
+  function cancelScheduledAutoClear() {
+    if (!state.autoClearTimer) {
+      return;
+    }
+    window.clearTimeout(state.autoClearTimer);
+    state.autoClearTimer = null;
+  }
+
+  function getArchiveIdleSeconds() {
+    const value = Number.parseFloat(archiveIdleInput.value);
+    return Number.isFinite(value) && value >= 0.5 ? value : 2.0;
+  }
+
+  function scheduleLocalAutoClearFallback(textAtSync) {
+    if (state.role !== "mobile" || !autoClearToggle.checked || !textAtSync.trim()) {
+      return;
+    }
+
+    cancelScheduledAutoClear();
+    state.autoClearTimer = window.setTimeout(function () {
+      state.autoClearTimer = null;
+      if (!autoClearToggle.checked || mobileEditor.value !== textAtSync) {
+        return;
+      }
+      mobileEditor.value = "";
+      pushDraft("", {
+        source: "mobile-auto-clear",
+        startText: "同步清空状态中…",
+        doneText: "已捕捉并同步，已自动清空",
+        errorText: "已本地清空，网络恢复后同步空白状态",
+        scheduleAutoClear: false,
+      });
+    }, (getArchiveIdleSeconds() + 1) * 1000);
   }
 
   async function pushDraft(text, options = {}) {
@@ -337,6 +377,9 @@
       renderRoomState(payload);
       state.pendingText = null;
       saveState.textContent = options.doneText || "已同步";
+      if (options.scheduleAutoClear !== false) {
+        scheduleLocalAutoClearFallback(text);
+      }
     } catch (error) {
       saveState.textContent = options.errorText || "网络中断，自动重试中…";
       scheduleDraftRetry();
@@ -558,6 +601,7 @@
 
     mobileEditor.addEventListener("input", function () {
       saveState.textContent = "输入中，自动同步中…";
+      cancelScheduledAutoClear();
       if (state.draftSaveTimer) {
         window.clearTimeout(state.draftSaveTimer);
       }
