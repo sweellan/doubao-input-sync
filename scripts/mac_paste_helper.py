@@ -28,6 +28,7 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
     curl_args = [
         "curl",
         "-fsS",
+        "--http1.1",
         "--max-time",
         str(request_timeout_seconds),
         "--connect-timeout",
@@ -81,6 +82,7 @@ def post_json(url: str, payload: dict, request_timeout_seconds: float, curl_reso
     curl_args = [
         "curl",
         "-fsS",
+        "--http1.1",
         "--max-time",
         str(request_timeout_seconds),
         "--connect-timeout",
@@ -177,6 +179,51 @@ def acknowledge_archive(
     )
 
 
+def acknowledge_archive_with_retry(
+    server_url: str,
+    room_id: str,
+    archive_id: int,
+    client_id: str,
+    action: str,
+    request_timeout_seconds: float,
+    curl_resolve: list[str],
+    attempts: int = 3,
+) -> tuple[dict, int]:
+    last_error: HTTPError | URLError | socket.timeout | None = None
+    ack_timeout = min(request_timeout_seconds, 6.0)
+    for attempt in range(1, attempts + 1):
+        try:
+            return (
+                acknowledge_archive(
+                    server_url,
+                    room_id,
+                    archive_id,
+                    client_id,
+                    action,
+                    ack_timeout,
+                    curl_resolve,
+                ),
+                attempt,
+            )
+        except (HTTPError, URLError, socket.timeout) as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(float(attempt))
+    assert last_error is not None
+    raise last_error
+
+
+def archive_acknowledged(payload: dict, archive_id: int, action: str) -> bool:
+    latest_archive = payload.get("latest_archive")
+    if latest_archive and latest_archive.get("archive_id") == archive_id:
+        return bool(latest_archive.get("desktop_received_at")) and latest_archive.get("desktop_delivery_action") == action
+
+    for entry in payload.get("history") or []:
+        if entry.get("archive_id") == archive_id:
+            return bool(entry.get("desktop_received_at")) and entry.get("desktop_delivery_action") == action
+    return False
+
+
 def parse_sse_event(lines: list[str]) -> dict | None:
     event_name = ""
     data_lines: list[str] = []
@@ -196,13 +243,22 @@ def parse_sse_event(lines: list[str]) -> dict | None:
         raise URLError(f"SSE returned invalid JSON: {exc}") from exc
 
 
-def stream_payloads(server_url: str, room_id: str, request_timeout_seconds: float, curl_resolve: list[str]) -> Iterator[dict]:
+def stream_payloads(
+    server_url: str,
+    room_id: str,
+    request_timeout_seconds: float,
+    stream_max_time_seconds: float,
+    curl_resolve: list[str],
+) -> Iterator[dict]:
     query = urlencode({"room_id": room_id})
     stream_url = f"{server_url.rstrip('/')}/api/stream?{query}"
     curl_args = [
         "curl",
         "-fsS",
         "-N",
+        "--http1.1",
+        "--max-time",
+        str(stream_max_time_seconds),
         "--connect-timeout",
         str(min(8.0, request_timeout_seconds)),
         "-H",
@@ -220,6 +276,7 @@ def stream_payloads(server_url: str, room_id: str, request_timeout_seconds: floa
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            errors="replace",
             bufsize=1,
         )
     except FileNotFoundError as exc:
@@ -273,6 +330,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interval-seconds", type=float, default=0.5)
     parser.add_argument("--request-timeout-seconds", type=float, default=8.0)
     parser.add_argument(
+        "--stream-max-time-seconds",
+        type=float,
+        default=90.0,
+        help="Recycle the long-lived SSE curl connection periodically so a silent stale stream can self-heal.",
+    )
+    parser.add_argument(
         "--transport",
         choices=["stream", "poll"],
         default="stream",
@@ -315,6 +378,62 @@ def parse_curl_resolve(values: list[str]) -> list[str]:
             if entry:
                 entries.append(entry)
     return entries
+
+
+def remember_pending_ack(state: dict, archive_id: int, action: str) -> None:
+    state["pending_acks"][archive_id] = {
+        "archive_id": archive_id,
+        "action": action,
+        "attempts": state["pending_acks"].get(archive_id, {}).get("attempts", 0),
+    }
+
+
+def retry_pending_acks(args: argparse.Namespace, state: dict) -> None:
+    if not state["pending_acks"]:
+        return
+
+    # Retry one pending ack per tick so a bad network stretch cannot block fresh paste handling.
+    archive_id = sorted(state["pending_acks"])[0]
+    pending = state["pending_acks"][archive_id]
+    action = pending["action"]
+    pending["attempts"] += 1
+
+    try:
+        ack_payload = acknowledge_archive(
+            args.server_url,
+            args.room_id,
+            archive_id,
+            args.client_id,
+            action,
+            min(args.request_timeout_seconds, 6.0),
+            state["curl_resolve"],
+        )
+        if ack_payload.get("ok"):
+            state["pending_acks"].pop(archive_id, None)
+            record = {
+                "status": "desktop_ack_recovered",
+                "room_id": args.room_id,
+                "archive_id": archive_id,
+                "action": action,
+                "attempts": pending["attempts"],
+            }
+            print(json.dumps(record, ensure_ascii=False), flush=True)
+            return
+    except (HTTPError, URLError, socket.timeout) as exc:
+        reason = str(getattr(exc, "reason", exc))
+    else:
+        reason = "ack endpoint returned ok=false"
+
+    if pending["attempts"] in {1, 3, 8}:
+        record = {
+            "status": "desktop_ack_still_pending",
+            "room_id": args.room_id,
+            "archive_id": archive_id,
+            "action": action,
+            "attempts": pending["attempts"],
+            "reason": reason,
+        }
+        print(json.dumps(record, ensure_ascii=False), flush=True)
 
 
 def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> bool:
@@ -388,7 +507,7 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
 
     if args.trigger == "archive" and archive_id > 0:
         try:
-            ack_payload = acknowledge_archive(
+            ack_payload, ack_attempts = acknowledge_archive_with_retry(
                 args.server_url,
                 args.room_id,
                 archive_id,
@@ -399,9 +518,26 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
             )
             record["desktop_ack"] = "ok" if ack_payload.get("ok") else "failed"
             record["desktop_ack_archive_id"] = archive_id
+            record["desktop_ack_attempts"] = ack_attempts
         except (HTTPError, URLError, socket.timeout) as exc:
             record["desktop_ack"] = "failed"
             record["desktop_ack_error"] = str(getattr(exc, "reason", exc))
+            record["desktop_ack_attempts"] = 3
+            try:
+                ack_state = fetch_state(
+                    args.server_url,
+                    args.room_id,
+                    min(args.request_timeout_seconds, 6.0),
+                    state["curl_resolve"],
+                )
+                if archive_acknowledged(ack_state, archive_id, record["action"]):
+                    record["desktop_ack"] = "ok"
+                    record["desktop_ack_archive_id"] = archive_id
+                    record["desktop_ack_verified_after_error"] = True
+            except (HTTPError, URLError, socket.timeout) as verify_exc:
+                record["desktop_ack_verify_error"] = str(getattr(verify_exc, "reason", verify_exc))
+            if record["desktop_ack"] != "ok":
+                remember_pending_ack(state, archive_id, record["action"])
 
     print(json.dumps(record, ensure_ascii=False), flush=True)
     state["applied_updates"] += 1
@@ -419,6 +555,7 @@ def main() -> int:
         "applied_updates": 0,
         "startup_seeded": False,
         "curl_resolve": curl_resolve,
+        "pending_acks": {},
     }
     connection_refused_count = 0
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -426,14 +563,22 @@ def main() -> int:
     while True:
         try:
             if args.transport == "stream":
-                for payload in stream_payloads(args.server_url, args.room_id, args.request_timeout_seconds, curl_resolve):
+                for payload in stream_payloads(
+                    args.server_url,
+                    args.room_id,
+                    args.request_timeout_seconds,
+                    args.stream_max_time_seconds,
+                    curl_resolve,
+                ):
                     connection_refused_count = 0
+                    retry_pending_acks(args, state)
                     if process_payload(args, payload, state):
                         return 0
                 continue
             else:
                 payload = fetch_state(args.server_url, args.room_id, args.request_timeout_seconds, curl_resolve)
                 connection_refused_count = 0
+                retry_pending_acks(args, state)
                 if process_payload(args, payload, state):
                     return 0
         except (URLError, socket.timeout) as exc:

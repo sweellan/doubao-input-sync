@@ -8,8 +8,9 @@ SERVER_URL="${SERVER_URL:-https://openclaw.ciaobella.cc/doubao}"
 ROOM_ID="${ROOM_ID:-doubao}"
 TRIGGER="${TRIGGER:-archive}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-12}"
+STREAM_MAX_TIME_SECONDS="${STREAM_MAX_TIME_SECONDS:-90}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-0.25}"
-CURL_RESOLVE="${CURL_RESOLVE:-openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237}"
+CURL_RESOLVE="${CURL_RESOLVE:-openclaw.ciaobella.cc:443:172.67.208.237}"
 TRANSPORT="${TRANSPORT:-stream}"
 
 cd "$PROJECT_ROOT"
@@ -19,6 +20,7 @@ echo "server_url=${SERVER_URL}"
 echo "room_id=${ROOM_ID}"
 echo "trigger=${TRIGGER}"
 echo "request_timeout_seconds=${REQUEST_TIMEOUT_SECONDS}"
+echo "stream_max_time_seconds=${STREAM_MAX_TIME_SECONDS}"
 echo "interval_seconds=${INTERVAL_SECONDS}"
 echo "curl_resolve=${CURL_RESOLVE}"
 echo "transport=${TRANSPORT}"
@@ -31,7 +33,8 @@ helper_args=(
   --mode paste \
   --trigger "$TRIGGER" \
   --transport "$TRANSPORT" \
-  --request-timeout-seconds "$REQUEST_TIMEOUT_SECONDS"
+  --request-timeout-seconds "$REQUEST_TIMEOUT_SECONDS" \
+  --stream-max-time-seconds "$STREAM_MAX_TIME_SECONDS"
 )
 
 if [[ -n "$CURL_RESOLVE" ]]; then

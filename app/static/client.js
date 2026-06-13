@@ -16,6 +16,9 @@
     claimedOk: false,
     capturePulseTimer: null,
     claimHeartbeatTimer: null,
+    lastAutoClearedArchiveId: 0,
+    desktopAckCheckTimer: null,
+    desktopAckCheckAttempts: 0,
   };
   const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
@@ -123,6 +126,9 @@
 
   function persistLocalPreferences() {
     window.localStorage.setItem(autoClearStorageKey(), autoClearToggle.checked ? "1" : "0");
+    if (!autoClearToggle.checked) {
+      cancelScheduledDesktopAckCheck();
+    }
   }
 
   function triggerFlash(message) {
@@ -180,6 +186,7 @@
     const previousHistoryCount = state.lastHistoryCount;
     const nextHistoryCount = (payload.history || []).length;
     const sawNewArchive = nextHistoryCount > previousHistoryCount;
+    const latestArchive = nextHistoryCount ? payload.history[nextHistoryCount - 1] : null;
     const shouldClearFromServerState =
       state.role === "mobile" &&
       autoClearToggle.checked &&
@@ -198,7 +205,13 @@
       archiveHint.textContent = `输入停顿约 ${payload.settings.archive_idle_seconds} 秒后自动入档`;
     }
     if (state.role !== "mobile") {
-      output.textContent = payload.text || "等待手机端输入…";
+      if (latestArchive && latestArchive.text) {
+        output.textContent = latestArchive.text;
+      } else if (payload.text) {
+        output.textContent = "正在输入，等待稳定归档…";
+      } else {
+        output.textContent = "等待手机端输入…";
+      }
     }
     if (state.role === "mobile" && !state.mobileHydrated && document.activeElement !== mobileEditor) {
       mobileEditor.value = payload.text || "";
@@ -206,14 +219,15 @@
     }
     renderHistory(payload.history || []);
 
+    if (clearMobileEditorAfterDesktopAck(latestArchive)) {
+      return;
+    }
+
     if (sawNewArchive) {
-      saveState.textContent = autoClearToggle.checked ? "已捕捉并同步，已自动清空" : "已捕捉并同步";
+      saveState.textContent = autoClearToggle.checked ? "已捕捉，等待电脑端接收" : "已捕捉并同步";
       triggerFlash("已捕捉并同步一批文字");
       if (state.role === "mobile") {
         triggerCapturedPulse();
-      }
-      if (state.role === "mobile" && autoClearToggle.checked) {
-        mobileEditor.value = "";
       }
       return;
     }
@@ -291,8 +305,88 @@
     }
   }
 
-  async function pushDraft(text) {
-    saveState.textContent = "同步中…";
+  function clearMobileEditorAfterDesktopAck(latestArchive) {
+    if (
+      state.role !== "mobile" ||
+      !autoClearToggle.checked ||
+      !mobileEditor ||
+      !latestArchive ||
+      !latestArchive.desktop_received_at ||
+      latestArchive.archive_id <= state.lastAutoClearedArchiveId
+    ) {
+      return false;
+    }
+
+    const archivedText = latestArchive.text || "";
+    if (mobileEditor.value && mobileEditor.value !== archivedText) {
+      saveState.textContent = "电脑端已接收，新输入未清空";
+      state.lastAutoClearedArchiveId = latestArchive.archive_id;
+      return false;
+    }
+
+    state.lastAutoClearedArchiveId = latestArchive.archive_id;
+    mobileEditor.value = "";
+    pushDraft("", {
+      source: "mobile-auto-clear",
+      startText: "同步清空状态中…",
+      doneText: "电脑端已接收，已自动清空",
+      errorText: "已本地清空，网络恢复后同步空白状态",
+      scheduleAutoClear: false,
+    });
+    return true;
+  }
+
+  function cancelScheduledDesktopAckCheck() {
+    if (!state.desktopAckCheckTimer) {
+      return;
+    }
+    window.clearTimeout(state.desktopAckCheckTimer);
+    state.desktopAckCheckTimer = null;
+    state.desktopAckCheckAttempts = 0;
+  }
+
+  function getArchiveIdleSeconds() {
+    const value = Number.parseFloat(archiveIdleInput.value);
+    return Number.isFinite(value) && value >= 0.5 ? value : 2.0;
+  }
+
+  function scheduleDesktopAckCheck(textAtSync, delayMs) {
+    if (state.role !== "mobile" || !autoClearToggle.checked || !textAtSync.trim()) {
+      return;
+    }
+
+    if (state.desktopAckCheckAttempts >= 8) {
+      return;
+    }
+
+    if (state.desktopAckCheckTimer) {
+      window.clearTimeout(state.desktopAckCheckTimer);
+    }
+
+    state.desktopAckCheckTimer = window.setTimeout(async function () {
+      state.desktopAckCheckTimer = null;
+      if (!autoClearToggle.checked || mobileEditor.value !== textAtSync) {
+        return;
+      }
+      state.desktopAckCheckAttempts += 1;
+      try {
+        await fetchState();
+      } finally {
+        if (mobileEditor.value === textAtSync) {
+          saveState.textContent = "已捕捉，等待电脑端接收";
+          scheduleDesktopAckCheck(textAtSync, 2000);
+        }
+      }
+    }, delayMs);
+  }
+
+  function scheduleDesktopAckFallback(textAtSync) {
+    cancelScheduledDesktopAckCheck();
+    scheduleDesktopAckCheck(textAtSync, (getArchiveIdleSeconds() + 1) * 1000);
+  }
+
+  async function pushDraft(text, options = {}) {
+    saveState.textContent = options.startText || "同步中…";
     state.pendingText = text;
     try {
       const response = await fetch(appPath("/api/update"), {
@@ -303,15 +397,18 @@
         body: JSON.stringify({
           room_id: state.roomId,
           text,
-          source: "mobile-web",
+          source: options.source || "mobile-web",
         }),
       });
       const payload = await response.json();
       renderRoomState(payload);
       state.pendingText = null;
-      saveState.textContent = "已同步";
+      saveState.textContent = options.doneText || "已同步";
+      if (options.scheduleAutoClear !== false) {
+        scheduleDesktopAckFallback(text);
+      }
     } catch (error) {
-      saveState.textContent = "网络中断，自动重试中…";
+      saveState.textContent = options.errorText || "网络中断，自动重试中…";
       scheduleDraftRetry();
     }
   }
@@ -531,6 +628,7 @@
 
     mobileEditor.addEventListener("input", function () {
       saveState.textContent = "输入中，自动同步中…";
+      cancelScheduledDesktopAckCheck();
       if (state.draftSaveTimer) {
         window.clearTimeout(state.draftSaveTimer);
       }

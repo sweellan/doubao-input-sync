@@ -66,6 +66,7 @@ scripts/
   smoke_test.py
 docs/
   REMOTE_TAILSCALE_RELAY.md
+  WINDOWS_HELPER_PLAN.md
 ```
 
 ## Quick Start

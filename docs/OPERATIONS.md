@@ -28,7 +28,8 @@ The healthy helper command should include:
 --mode paste
 --request-timeout-seconds 12
 --interval-seconds 0.25
---curl-resolve openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237
+--stream-max-time-seconds 90
+--curl-resolve openclaw.ciaobella.cc:443:172.67.208.237
 --transport stream
 ```
 
@@ -49,7 +50,8 @@ Safe optimization targets:
 - helper request timeout
 - helper poll interval
 - helper transport; prefer SSE `stream` over HTTPS polling for the public route
-- curl DNS / `--resolve`; currently keep `openclaw.ciaobella.cc:443:104.21.61.99,openclaw.ciaobella.cc:443:172.67.208.237`
+- SSE stream max lifetime; recycle the stream periodically so a silently stale connection can self-heal
+- curl DNS / `--resolve`; currently prefer `openclaw.ciaobella.cc:443:172.67.208.237`
 - foreground runner health and logs
 - restoring the private Tailscale relay/proxy
 
@@ -57,13 +59,23 @@ Risky optimization target:
 
 - `archive_idle_seconds`; only change it when the user explicitly asks.
 
+## Current Transfer Strategy
+
+The mobile page sends a full draft snapshot after a short browser debounce. The relay pushes every draft version to SSE subscribers and resets the archive timer each time.
+
+After `archive_idle_seconds` of no new updates, the relay writes one stable archive entry. The macOS helper uses `trigger=archive`, so it should only paste archive entries, not every live draft.
+
+The PC web page should treat live draft text as preview-only. Its main output should show the latest archive entry; otherwise long voice input will visibly grow, shrink, and regrow as the mobile IME revises intermediate text.
+
+If a fresh archive exists but `desktop_received_at` remains empty, check the helper stream first. A long-lived public SSE connection can stay alive but stop delivering events. The helper should use HTTP/1.1 and a finite `--stream-max-time-seconds` so reconnects can pick up missed archive entries from the initial stream state.
+
 ## Quick Health Checks
 
 Public route:
 
 ```bash
 curl -sS --max-time 4 --connect-timeout 2 \
-  --resolve openclaw.ciaobella.cc:443:104.21.61.99 \
+  --resolve openclaw.ciaobella.cc:443:172.67.208.237 \
   -H 'ngrok-skip-browser-warning: 1' \
   -A 'doubao-input-sync-helper/1.0' \
   'https://openclaw.ciaobella.cc/doubao/api/helper-state?room_id=doubao'
@@ -82,7 +94,7 @@ Room setting check:
 
 ```bash
 curl -sS --max-time 4 --connect-timeout 2 \
-  --resolve openclaw.ciaobella.cc:443:104.21.61.99 \
+  --resolve openclaw.ciaobella.cc:443:172.67.208.237 \
   -H 'ngrok-skip-browser-warning: 1' \
   -A 'doubao-input-sync-helper/1.0' \
   'https://openclaw.ciaobella.cc/doubao/api/state?room_id=doubao' \
