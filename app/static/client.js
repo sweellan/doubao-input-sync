@@ -46,9 +46,13 @@
   const historyList = document.getElementById("history-list");
   const syncFlash = document.getElementById("sync-flash");
   const archiveHint = document.getElementById("archive-hint");
+  const themePicker = document.getElementById("theme-picker");
+  const themeStatus = document.getElementById("theme-status");
   const autoClearStoragePrefix = "doubao-input-sync:auto-clear:";
+  const themeStoragePrefix = "doubao-input-sync:theme:";
   const clientIdStoragePrefix = "doubao-input-sync:client-id:";
   const claimHeartbeatIntervalMs = 15000;
+  const themeOptions = ["warm", "green", "blue", "rose", "slate"];
 
   function appPath(path) {
     return `${basePath}${path}`;
@@ -119,9 +123,41 @@
     return `${autoClearStoragePrefix}${state.roomId}`;
   }
 
+  function themeStorageKey() {
+    return `${themeStoragePrefix}${state.roomId}`;
+  }
+
+  function defaultThemeForRoom() {
+    const room = state.roomId || "doubao";
+    let hash = 0;
+    for (let index = 0; index < room.length; index += 1) {
+      hash = (hash * 31 + room.charCodeAt(index)) >>> 0;
+    }
+    return themeOptions[hash % themeOptions.length];
+  }
+
+  function applyTheme(theme, shouldPersist) {
+    const nextTheme = themeOptions.includes(theme) ? theme : defaultThemeForRoom();
+    document.body.dataset.theme = nextTheme;
+    if (themePicker) {
+      themePicker.querySelectorAll(".theme-swatch").forEach(function (button) {
+        const isSelected = button.dataset.theme === nextTheme;
+        button.classList.toggle("is-selected", isSelected);
+        button.setAttribute("aria-checked", isSelected ? "true" : "false");
+      });
+    }
+    if (shouldPersist) {
+      window.localStorage.setItem(themeStorageKey(), nextTheme);
+      if (themeStatus) {
+        themeStatus.textContent = `已为 ${state.roomId} 保存页面底色`;
+      }
+    }
+  }
+
   function loadLocalPreferences() {
     const storedValue = window.localStorage.getItem(autoClearStorageKey());
     autoClearToggle.checked = storedValue === null ? true : storedValue === "1";
+    applyTheme(window.localStorage.getItem(themeStorageKey()) || defaultThemeForRoom(), false);
   }
 
   function persistLocalPreferences() {
@@ -611,6 +647,14 @@
     refreshButton.addEventListener("click", fetchState);
     saveSettingsButton.addEventListener("click", saveSettings);
     autoClearToggle.addEventListener("change", persistLocalPreferences);
+    if (themePicker) {
+      themePicker.querySelectorAll(".theme-swatch").forEach(function (button) {
+        button.setAttribute("role", "radio");
+        button.addEventListener("click", function () {
+          applyTheme(button.dataset.theme, true);
+        });
+      });
+    }
 
     copyButton.addEventListener("click", async function () {
       const value = output.textContent === "等待手机端输入…" ? "" : output.textContent;
