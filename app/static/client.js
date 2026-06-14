@@ -49,7 +49,6 @@
   const themePicker = document.getElementById("theme-picker");
   const themeStatus = document.getElementById("theme-status");
   const autoClearStoragePrefix = "doubao-input-sync:auto-clear:";
-  const themeStoragePrefix = "doubao-input-sync:theme:";
   const clientIdStoragePrefix = "doubao-input-sync:client-id:";
   const claimHeartbeatIntervalMs = 15000;
   const themeOptions = ["warm", "green", "blue", "rose", "slate"];
@@ -123,10 +122,6 @@
     return `${autoClearStoragePrefix}${state.roomId}`;
   }
 
-  function themeStorageKey() {
-    return `${themeStoragePrefix}${state.roomId}`;
-  }
-
   function defaultThemeForRoom() {
     const room = state.roomId || "doubao";
     let hash = 0;
@@ -136,7 +131,7 @@
     return themeOptions[hash % themeOptions.length];
   }
 
-  function applyTheme(theme, shouldPersist) {
+  function applyTheme(theme, statusText) {
     const nextTheme = themeOptions.includes(theme) ? theme : defaultThemeForRoom();
     document.body.dataset.theme = nextTheme;
     if (themePicker) {
@@ -146,18 +141,15 @@
         button.setAttribute("aria-checked", isSelected ? "true" : "false");
       });
     }
-    if (shouldPersist) {
-      window.localStorage.setItem(themeStorageKey(), nextTheme);
-      if (themeStatus) {
-        themeStatus.textContent = `已为 ${state.roomId} 保存页面底色`;
-      }
+    if (themeStatus && statusText) {
+      themeStatus.textContent = statusText;
     }
   }
 
   function loadLocalPreferences() {
     const storedValue = window.localStorage.getItem(autoClearStorageKey());
     autoClearToggle.checked = storedValue === null ? true : storedValue === "1";
-    applyTheme(window.localStorage.getItem(themeStorageKey()) || defaultThemeForRoom(), false);
+    applyTheme(defaultThemeForRoom(), "同一个 room 的手机端和 PC 端会同步底色。");
   }
 
   function persistLocalPreferences() {
@@ -239,6 +231,10 @@
     if (payload.settings && payload.settings.archive_idle_seconds) {
       archiveIdleInput.value = payload.settings.archive_idle_seconds;
       archiveHint.textContent = `输入停顿约 ${payload.settings.archive_idle_seconds} 秒后自动入档`;
+    }
+    if (payload.settings) {
+      const roomTheme = payload.settings.theme || defaultThemeForRoom();
+      applyTheme(roomTheme, `当前 room 底色：${roomTheme}`);
     }
     if (state.role !== "mobile") {
       if (latestArchive && latestArchive.text) {
@@ -483,6 +479,30 @@
     }
   }
 
+  async function saveTheme(theme) {
+    const nextTheme = themeOptions.includes(theme) ? theme : defaultThemeForRoom();
+    applyTheme(nextTheme, "同步底色中…");
+    try {
+      const response = await fetch(appPath("/api/settings"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          room_id: state.roomId,
+          theme: nextTheme,
+        }),
+      });
+      const payload = await response.json();
+      renderRoomState(payload);
+      if (themeStatus) {
+        themeStatus.textContent = `已同步 ${state.roomId} 的底色`;
+      }
+    } catch (error) {
+      applyTheme(nextTheme, "底色同步失败，请重试");
+    }
+  }
+
   async function claimCurrentRole() {
     if (state.role === "landing") {
       return true;
@@ -651,7 +671,7 @@
       themePicker.querySelectorAll(".theme-swatch").forEach(function (button) {
         button.setAttribute("role", "radio");
         button.addEventListener("click", function () {
-          applyTheme(button.dataset.theme, true);
+          saveTheme(button.dataset.theme);
         });
       });
     }

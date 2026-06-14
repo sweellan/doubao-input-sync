@@ -23,6 +23,7 @@ STATIC_ROOT = APP_ROOT / "static"
 ARCHIVE_IDLE_SECONDS = float(os.environ.get("ARCHIVE_IDLE_SECONDS", "2.0"))
 CLAIM_TTL_SECONDS = float(os.environ.get("CLAIM_TTL_SECONDS", "45.0"))
 MAX_HISTORY_ITEMS = 50
+THEME_OPTIONS = {"warm", "green", "blue", "rose", "slate"}
 
 
 def utc_now_iso() -> str:
@@ -51,6 +52,13 @@ def parse_claim_ttl_seconds(raw_value: str) -> float:
     value = float(raw_value)
     if value < 10:
         raise ValueError("claim ttl seconds must be >= 10")
+    return value
+
+
+def parse_theme(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    if value not in THEME_OPTIONS:
+        raise ValueError("theme must be one of warm, green, blue, rose, slate")
     return value
 
 
@@ -99,6 +107,7 @@ class RoomState:
     updated_at: str = ""
     source: str = ""
     archive_idle_seconds: float = ARCHIVE_IDLE_SECONDS
+    theme: str = ""
     claims: Dict[str, RoleClaim] = field(default_factory=dict)
     history: List[ArchiveEntry] = field(default_factory=list)
 
@@ -111,6 +120,7 @@ class RoomState:
             "source": self.source,
             "settings": {
                 "archive_idle_seconds": self.archive_idle_seconds,
+                "theme": self.theme,
             },
             "claims": {role: claim.payload() for role, claim in self.claims.items()},
             "history": [entry.payload() for entry in self.history],
@@ -135,6 +145,7 @@ class RoomState:
             updated_at=self.updated_at,
             source=self.source,
             archive_idle_seconds=self.archive_idle_seconds,
+            theme=self.theme,
             claims={
                 role: RoleClaim(
                     role=claim.role,
@@ -225,11 +236,14 @@ class RoomStore:
             if not watchers:
                 self._subscribers.pop(room_id, None)
 
-    def update_settings(self, room_id: str, archive_idle_seconds: float) -> RoomState:
+    def update_settings(self, room_id: str, archive_idle_seconds: float | None = None, theme: str | None = None) -> RoomState:
         with self._lock:
             room = self._ensure_room(room_id)
             self._purge_expired_claims(room)
-            room.archive_idle_seconds = archive_idle_seconds
+            if archive_idle_seconds is not None:
+                room.archive_idle_seconds = archive_idle_seconds
+            if theme is not None:
+                room.theme = theme
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
 
@@ -509,18 +523,33 @@ class RelayHandler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(content_length) or b"{}")
         room_id = (payload.get("room_id") or self.default_room).strip()
         raw_archive_idle_seconds = payload.get("archive_idle_seconds")
+        raw_theme = payload.get("theme")
 
         if not room_id:
             self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
             return
 
-        try:
-            archive_idle_seconds = parse_archive_idle_seconds(str(raw_archive_idle_seconds))
-        except (TypeError, ValueError):
-            self._send_json({"error": "archive_idle_seconds must be a number >= 0.5"}, status=HTTPStatus.BAD_REQUEST)
+        archive_idle_seconds = None
+        theme = None
+        if raw_archive_idle_seconds is not None:
+            try:
+                archive_idle_seconds = parse_archive_idle_seconds(str(raw_archive_idle_seconds))
+            except (TypeError, ValueError):
+                self._send_json({"error": "archive_idle_seconds must be a number >= 0.5"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+        if raw_theme is not None:
+            try:
+                theme = parse_theme(str(raw_theme))
+            except ValueError:
+                self._send_json({"error": "theme must be one of warm, green, blue, rose, slate"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+        if archive_idle_seconds is None and theme is None:
+            self._send_json({"error": "settings update requires archive_idle_seconds or theme"}, status=HTTPStatus.BAD_REQUEST)
             return
 
-        room = self.store.update_settings(room_id=room_id, archive_idle_seconds=archive_idle_seconds)
+        room = self.store.update_settings(room_id=room_id, archive_idle_seconds=archive_idle_seconds, theme=theme)
         self._send_json(room.payload(), status=HTTPStatus.OK)
 
     def _handle_claim(self) -> None:

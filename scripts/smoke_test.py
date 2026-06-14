@@ -71,6 +71,18 @@ def post_update(server_url: str, room_id: str, text: str, source: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def post_settings(server_url: str, room_id: str, payload: dict) -> dict:
+    body = json.dumps({"room_id": room_id, **payload}).encode("utf-8")
+    request = Request(
+        f"{server_url}/api/settings",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=3) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def get_state(server_url: str, room_id: str) -> dict:
     with urlopen(f"{server_url}/api/state?{urlencode({'room_id': room_id})}", timeout=3) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -150,6 +162,7 @@ def main() -> int:
 
             time.sleep(0.4)
             posted = post_update(server_url, args.room_id, "来自手机端的同步测试文本", "smoke-test")
+            themed_state = post_settings(server_url, args.room_id, {"theme": "blue"})
             state = get_state(server_url, args.room_id)
             archived_state = wait_for_archive(server_url, args.room_id)
 
@@ -165,6 +178,7 @@ def main() -> int:
                 "server_url": server_url,
                 "room_id": args.room_id,
                 "posted": posted,
+                "themed_state": themed_state,
                 "state": state,
                 "archived_state": archived_state,
                 "acknowledged_state": acknowledged_state,
@@ -173,6 +187,7 @@ def main() -> int:
                 "helper_output": helper_output,
                 "checks": {
                     "state_reflects_update": state.get("text") == "来自手机端的同步测试文本",
+                    "theme_synced_in_room_settings": state.get("settings", {}).get("theme") == "blue",
                     "sse_received_update": any(event.get("version") == posted.get("version") for event in sse_events),
                     "helper_saw_update": any('"status": "updated"' in line for line in helper_output),
                     "history_archived_latest": bool(archived_state.get("history")) and archived_state["history"][-1].get("text") == "来自手机端的同步测试文本",
