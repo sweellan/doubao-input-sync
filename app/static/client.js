@@ -5,7 +5,7 @@
     draftSaveTimer: null,
     retryTimer: null,
     lastVersion: 0,
-    lastHistoryCount: 0,
+    lastArchiveId: 0,
     eventSource: null,
     flashTimer: null,
     reconnectTimer: null,
@@ -19,6 +19,9 @@
     lastAutoClearedArchiveId: 0,
     desktopAckCheckTimer: null,
     desktopAckCheckAttempts: 0,
+    captureMode: "auto",
+    modeChangePending: false,
+    manualSendPending: false,
   };
   const basePath = (window.__APP_BASE_PATH__ || "").replace(/\/+$/, "");
 
@@ -30,6 +33,12 @@
   const mobilePanel = document.getElementById("mobile-panel");
   const pcPanel = document.getElementById("pc-panel");
   const mobileEditor = document.getElementById("mobile-editor");
+  const composerShell = document.getElementById("composer-shell");
+  const autoModeButton = document.getElementById("auto-mode-button");
+  const manualModeButton = document.getElementById("manual-mode-button");
+  const manualSendButton = document.getElementById("manual-send-button");
+  const captureModeHint = document.getElementById("capture-mode-hint");
+  const mobilePanelHint = document.getElementById("mobile-panel-hint");
   const clearButton = document.getElementById("clear-button");
   const autoClearToggle = document.getElementById("auto-clear-toggle");
   const saveState = document.getElementById("save-state");
@@ -159,6 +168,45 @@
     }
   }
 
+  function updateManualSendAvailability() {
+    if (!manualSendButton) {
+      return;
+    }
+    const isManual = state.captureMode === "manual";
+    manualSendButton.hidden = !isManual;
+    manualSendButton.disabled =
+      !isManual ||
+      state.manualSendPending ||
+      state.modeChangePending ||
+      state.claimedOk === false ||
+      !mobileEditor.value.trim();
+    autoModeButton.disabled = state.modeChangePending || state.manualSendPending || state.claimedOk === false;
+    manualModeButton.disabled = state.modeChangePending || state.manualSendPending || state.claimedOk === false;
+  }
+
+  function renderCaptureMode(mode) {
+    const nextMode = mode === "manual" ? "manual" : "auto";
+    state.captureMode = nextMode;
+    const isManual = nextMode === "manual";
+    composerShell.dataset.captureMode = nextMode;
+    autoModeButton.classList.toggle("is-selected", !isManual);
+    manualModeButton.classList.toggle("is-selected", isManual);
+    autoModeButton.setAttribute("aria-pressed", isManual ? "false" : "true");
+    manualModeButton.setAttribute("aria-pressed", isManual ? "true" : "false");
+
+    if (isManual) {
+      captureModeHint.textContent = "放心换气、思考或停顿：草稿会保存，但只有点“说完了，发送”才会进电脑。";
+      mobilePanelHint.textContent = "换气模式已开启，停多久都不会自动发送";
+      archiveHint.textContent = "换气模式：只在手动发送后入档";
+    } else {
+      const idleSeconds = getArchiveIdleSeconds();
+      captureModeHint.textContent = `当前会在停顿约 ${idleSeconds} 秒后自动发送到电脑。`;
+      mobilePanelHint.textContent = "顺口模式下，停顿一段时间就会自动发送";
+      archiveHint.textContent = `输入停顿约 ${idleSeconds} 秒后自动入档`;
+    }
+    updateManualSendAvailability();
+  }
+
   function triggerFlash(message) {
     if (!syncFlash) {
       return;
@@ -210,11 +258,14 @@
   }
 
   function renderRoomState(payload) {
+    if (typeof payload.version === "number" && payload.version < state.lastVersion) {
+      return;
+    }
     const previousVersion = state.lastVersion;
-    const previousHistoryCount = state.lastHistoryCount;
     const nextHistoryCount = (payload.history || []).length;
-    const sawNewArchive = nextHistoryCount > previousHistoryCount;
     const latestArchive = nextHistoryCount ? payload.history[nextHistoryCount - 1] : null;
+    const latestArchiveId = latestArchive ? latestArchive.archive_id : 0;
+    const sawNewArchive = latestArchiveId > state.lastArchiveId;
     const shouldClearFromServerState =
       state.role === "mobile" &&
       autoClearToggle.checked &&
@@ -224,14 +275,14 @@
       payload.version >= previousVersion;
 
     state.lastVersion = payload.version;
-    state.lastHistoryCount = nextHistoryCount;
+    state.lastArchiveId = Math.max(state.lastArchiveId, latestArchiveId);
     versionBadge.textContent = `version ${payload.version}`;
     updatedAt.textContent = payload.updated_at ? `updated at: ${payload.updated_at}` : "尚未收到内容";
     sourceLine.textContent = `source: ${payload.source || "-"}`;
     if (payload.settings && payload.settings.archive_idle_seconds) {
       archiveIdleInput.value = payload.settings.archive_idle_seconds;
-      archiveHint.textContent = `输入停顿约 ${payload.settings.archive_idle_seconds} 秒后自动入档`;
     }
+    renderCaptureMode(payload.settings && payload.settings.capture_mode ? payload.settings.capture_mode : state.captureMode);
     if (payload.settings) {
       const roomTheme = payload.settings.theme || defaultThemeForRoom();
       applyTheme(roomTheme, `当前 room 底色：${roomTheme}`);
@@ -256,8 +307,9 @@
     }
 
     if (sawNewArchive) {
-      saveState.textContent = autoClearToggle.checked ? "已捕捉，等待电脑端接收" : "已捕捉并同步";
-      triggerFlash("已捕捉并同步一批文字");
+      const wasManualCapture = latestArchive && latestArchive.source === "mobile-web-manual";
+      saveState.textContent = autoClearToggle.checked ? "已发送，等待电脑端接收" : "已发送到电脑";
+      triggerFlash(wasManualCapture ? "换气结束，这批文字已发送" : "已捕捉并同步一批文字");
       if (state.role === "mobile") {
         triggerCapturedPulse();
       }
@@ -270,7 +322,7 @@
     }
 
     if (payload.version > previousVersion && previousVersion !== 0) {
-      saveState.textContent = "草稿已同步，继续等稳定版本";
+      saveState.textContent = state.captureMode === "manual" ? "草稿已保存，放心慢慢说" : "草稿已同步，继续等稳定版本";
     }
   }
 
@@ -332,8 +384,8 @@
     const response = await fetch(appPath("/api/server-info"));
     const payload = await response.json();
     if (payload.archive_idle_seconds) {
-      archiveHint.textContent = `只有连续约 ${payload.archive_idle_seconds} 秒没有新输入，才会正式捕捉`;
       archiveIdleInput.value = payload.archive_idle_seconds;
+      renderCaptureMode(state.captureMode);
     }
   }
 
@@ -369,11 +421,10 @@
   }
 
   function cancelScheduledDesktopAckCheck() {
-    if (!state.desktopAckCheckTimer) {
-      return;
+    if (state.desktopAckCheckTimer) {
+      window.clearTimeout(state.desktopAckCheckTimer);
+      state.desktopAckCheckTimer = null;
     }
-    window.clearTimeout(state.desktopAckCheckTimer);
-    state.desktopAckCheckTimer = null;
     state.desktopAckCheckAttempts = 0;
   }
 
@@ -430,18 +481,28 @@
           room_id: state.roomId,
           text,
           source: options.source || "mobile-web",
+          capture_mode: options.captureMode || state.captureMode,
         }),
       });
       const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
       renderRoomState(payload);
-      state.pendingText = null;
-      saveState.textContent = options.doneText || "已同步";
-      if (options.scheduleAutoClear !== false) {
+      if (state.pendingText === text) {
+        state.pendingText = null;
+      }
+      saveState.textContent = options.doneText || (state.captureMode === "manual" ? "草稿已保存，放心慢慢说" : "已同步");
+      if (options.scheduleAutoClear !== false && state.captureMode === "auto") {
         scheduleDesktopAckFallback(text);
       }
+      return payload;
     } catch (error) {
       saveState.textContent = options.errorText || "网络中断，自动重试中…";
-      scheduleDraftRetry();
+      if (options.retry !== false) {
+        scheduleDraftRetry();
+      }
+      return null;
     }
   }
 
@@ -455,6 +516,98 @@
         pushDraft(state.pendingText);
       }
     }, 1200);
+  }
+
+  async function changeCaptureMode(nextMode) {
+    if (!['auto', 'manual'].includes(nextMode) || nextMode === state.captureMode || state.modeChangePending) {
+      return;
+    }
+
+    if (state.draftSaveTimer) {
+      window.clearTimeout(state.draftSaveTimer);
+      state.draftSaveTimer = null;
+    }
+    cancelScheduledDesktopAckCheck();
+
+    const previousMode = state.captureMode;
+    state.modeChangePending = true;
+    renderCaptureMode(nextMode);
+    saveState.textContent = nextMode === "manual" ? "正在打开换气空间…" : "正在切回顺口模式…";
+
+    const payload = await pushDraft(mobileEditor.value, {
+      source: "mobile-mode-switch",
+      captureMode: nextMode,
+      startText: nextMode === "manual" ? "正在打开换气空间…" : "正在切回顺口模式…",
+      doneText: nextMode === "manual" ? "换气模式已开启，放心慢慢说" : "顺口模式已恢复，停顿后自动发送",
+      errorText: "模式切换失败，请再试一次",
+      scheduleAutoClear: false,
+      retry: false,
+    });
+
+    if (!payload) {
+      renderCaptureMode(previousMode);
+    }
+    state.modeChangePending = false;
+    renderCaptureMode(payload && payload.settings ? payload.settings.capture_mode : state.captureMode);
+  }
+
+  async function sendManualCapture() {
+    const textAtSend = mobileEditor.value;
+    if (state.captureMode !== "manual" || state.manualSendPending || !textAtSend.trim()) {
+      return;
+    }
+
+    if (state.draftSaveTimer) {
+      window.clearTimeout(state.draftSaveTimer);
+      state.draftSaveTimer = null;
+    }
+    cancelScheduledDesktopAckCheck();
+    state.manualSendPending = true;
+    updateManualSendAvailability();
+
+    const synced = await pushDraft(textAtSend, {
+      source: "mobile-web-manual",
+      captureMode: "manual",
+      startText: "正在确认最后一版草稿…",
+      doneText: "最后一版草稿已保存，正在发送…",
+      errorText: "草稿同步失败，还没有发送",
+      scheduleAutoClear: false,
+      retry: false,
+    });
+
+    if (!synced) {
+      state.manualSendPending = false;
+      updateManualSendAvailability();
+      return;
+    }
+
+    try {
+      const response = await fetch(appPath("/api/capture"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          room_id: state.roomId,
+          expected_version: synced.version,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        if (payload.state) {
+          renderRoomState(payload.state);
+        }
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      renderRoomState(payload.state);
+      saveState.textContent = autoClearToggle.checked ? "已发送，等待电脑端接收" : "已发送到电脑";
+      scheduleDesktopAckCheck(textAtSend, 500);
+    } catch (error) {
+      saveState.textContent = "发送没有完成，草稿还在，请再点一次";
+    } finally {
+      state.manualSendPending = false;
+      updateManualSendAvailability();
+    }
   }
 
   async function saveSettings() {
@@ -494,6 +647,9 @@
         }),
       });
       const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
       renderRoomState(payload);
       if (themeStatus) {
         themeStatus.textContent = `已同步 ${state.roomId} 的底色`;
@@ -528,6 +684,7 @@
         if (state.role === "mobile") {
           mobileEditor.disabled = true;
         }
+        updateManualSendAvailability();
         return false;
       }
       state.claimedOk = true;
@@ -535,6 +692,7 @@
       if (state.role === "mobile") {
         mobileEditor.disabled = false;
       }
+      updateManualSendAvailability();
       if (payload.state) {
         renderRoomState(payload.state);
       }
@@ -667,6 +825,13 @@
     refreshButton.addEventListener("click", fetchState);
     saveSettingsButton.addEventListener("click", saveSettings);
     autoClearToggle.addEventListener("change", persistLocalPreferences);
+    autoModeButton.addEventListener("click", function () {
+      changeCaptureMode("auto");
+    });
+    manualModeButton.addEventListener("click", function () {
+      changeCaptureMode("manual");
+    });
+    manualSendButton.addEventListener("click", sendManualCapture);
     if (themePicker) {
       themePicker.querySelectorAll(".theme-swatch").forEach(function (button) {
         button.setAttribute("role", "radio");
@@ -687,11 +852,16 @@
 
     clearButton.addEventListener("click", function () {
       mobileEditor.value = "";
-      pushDraft("");
+      updateManualSendAvailability();
+      pushDraft("", {
+        source: "mobile-clear",
+        scheduleAutoClear: false,
+      });
     });
 
     mobileEditor.addEventListener("input", function () {
-      saveState.textContent = "输入中，自动同步中…";
+      saveState.textContent = state.captureMode === "manual" ? "输入中，草稿保存中；不会自动发送" : "输入中，自动同步中…";
+      updateManualSendAvailability();
       cancelScheduledDesktopAckCheck();
       if (state.draftSaveTimer) {
         window.clearTimeout(state.draftSaveTimer);
@@ -711,6 +881,7 @@
   ensureClientId();
   roomInput.value = state.roomId;
   loadLocalPreferences();
+  renderCaptureMode("auto");
   bindEvents();
   fetchState();
   fetchServerInfo();

@@ -2,7 +2,7 @@
 
 Turn phone-side text input into desktop text insertion.
 
-`Doubao Input Sync` is a tiny local relay that lets you type or paste a long block of text on your phone, have it auto-sync to your computer, keep an archive of stable snapshots, and optionally auto-paste the final text into the desktop app that currently owns the cursor.
+`Doubao Input Sync` is a tiny local relay that lets you type or paste a long block of text on your phone, either send it automatically after a quiet window or pause for as long as you need before sending manually, and optionally auto-paste the final text into the desktop app that currently owns the cursor.
 
 This is an unofficial utility and is not affiliated with Doubao or its input method product team.
 
@@ -21,10 +21,12 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 
 ## Features
 
-- Auto-sync while typing, no explicit send button
-- Auto-capture only after the text stops changing for about 2 seconds by default
+- Two easy-to-switch rhythms: `Flow mode` auto-sends after a quiet window, while `Breathing mode` waits for an explicit send no matter how long you pause
+- Auto-capture in Flow mode only after the text stops changing for about 2 seconds by default
+- Drafts still sync in Breathing mode, and `Done — send` captures immediately when you are ready
 - Random pairing code by default instead of a shared hard-coded room name
 - Strong 1 phone + 1 desktop slot matching per room, with conflict warning
+- Room-level theme colors shared by the phone and desktop pages
 - Desktop history list with per-item copy actions
 - Optional auto-paste to the active desktop input on macOS
 - Zero Python dependencies beyond the standard library
@@ -40,7 +42,8 @@ Phone browser
 Local Python relay
   -> in-memory room state
   -> SSE updates to desktop page
-  -> archive snapshot after idle window
+  -> Flow mode: archive snapshot after idle window
+  -> Breathing mode: archive immediately on explicit capture
 macOS helper
   -> watches latest archive item
   -> copies or pastes into active app
@@ -112,6 +115,15 @@ This will:
 - start the relay if it is not already running
 - watch the latest archived snapshot
 - paste it into the currently focused desktop input on macOS
+
+## Choose An Input Rhythm
+
+The phone editor has two mode buttons attached to it:
+
+- `⚡ Flow mode` keeps the original behavior: a full quiet window sends the current text automatically.
+- `🌿 Breathing mode` lets you pause to read, think, or breathe for as long as needed. Drafts remain synced, but nothing enters the archive or desktop helper until you press `Done — send`.
+
+The current room keeps its mode while the relay stays alive. A relay restart safely defaults back to Flow mode. Switching back to Flow mode starts the normal quiet-window timer for the current draft.
 
 ## Stable Shared-Tunnel Deployment
 
@@ -189,7 +201,7 @@ ARCHIVE_IDLE_SECONDS=3.2 ./scripts/run_autopaste_local.sh
 ```
 
 The mobile page also lets you change the capture wait time in the UI.
-The logic is debounce-style, not interval-style: every new input resets the timer, and capture happens only after a full quiet window with no new changes.
+Flow mode is debounce-style, not interval-style: every new input resets the timer, and capture happens only after a full quiet window with no new changes. Breathing mode ignores this timer.
 
 ## Data Isolation
 

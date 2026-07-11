@@ -436,6 +436,32 @@ def retry_pending_acks(args: argparse.Namespace, state: dict) -> None:
         print(json.dumps(record, ensure_ascii=False), flush=True)
 
 
+def reset_relay_sequence_if_needed(payload: dict, state: dict, emit_log: bool = True) -> bool:
+    version = payload.get("version", 0)
+    if not state["startup_seeded"] or version >= state["last_version"]:
+        return False
+
+    previous_version = state["last_version"]
+    previous_archive_id = state["last_archive_id"]
+    state["last_version"] = -1
+    state["last_archive_id"] = -1
+    state["pending_acks"].clear()
+    if emit_log:
+        print(
+            json.dumps(
+                {
+                    "status": "relay_sequence_reset",
+                    "previous_version": previous_version,
+                    "new_version": version,
+                    "previous_archive_id": previous_archive_id,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+    return True
+
+
 def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> bool:
     version = payload.get("version", 0)
     text = payload.get("text", "")
@@ -450,7 +476,10 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
         state["startup_seeded"] = True
         return False
 
+    reset_relay_sequence_if_needed(payload, state)
+
     if args.trigger == "archive":
+        state["last_version"] = max(state["last_version"], version)
         if not latest_archive:
             return False
 

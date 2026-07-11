@@ -60,7 +60,7 @@
       <section class="panel" id="mobile-panel">
         <div class="panel-header">
           <h2>手机输入区</h2>
-          <span class="hint">只有连续一段时间没新输入，才会捕捉归档</span>
+          <span class="hint" id="mobile-panel-hint">顺口模式下，停顿一段时间就会自动发送</span>
         </div>
         <div class="inline-row actions mobile-toolbar">
           <button id="clear-button" type="button">清空输入框</button>
@@ -70,7 +70,25 @@
           </label>
           <span id="save-state" class="hint">待输入，草稿会先同步，稳定后才正式捕捉</span>
         </div>
-        <textarea id="mobile-editor" placeholder="把豆包输入法的结果持续输入在这里"></textarea>
+        <div class="composer-shell" id="composer-shell" data-capture-mode="auto">
+          <div class="capture-mode-bar">
+            <div class="mode-switcher" role="group" aria-label="发送模式">
+              <button id="auto-mode-button" class="mode-option is-selected" type="button" aria-pressed="true">
+                <span>⚡ 顺口模式</span>
+                <small>停顿后自动发</small>
+              </button>
+              <button id="manual-mode-button" class="mode-option" type="button" aria-pressed="false">
+                <span>🌿 换气模式</span>
+                <small>停多久都不发</small>
+              </button>
+            </div>
+            <button id="manual-send-button" class="manual-send-button" type="button" hidden>
+              说完了，发送
+            </button>
+          </div>
+          <p id="capture-mode-hint" class="capture-mode-hint">当前会在停顿达到等待时间后自动发送到电脑。</p>
+          <textarea id="mobile-editor" placeholder="把豆包输入法的结果持续输入在这里"></textarea>
+        </div>
       </section>
 
       <section class="panel" id="pc-panel">

@@ -195,6 +195,85 @@ h1 {
   margin-left: auto;
 }
 
+.composer-shell {
+  border-radius: 22px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(30, 27, 24, 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.composer-shell[data-capture-mode="manual"] {
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 24%, rgba(255, 255, 255, 0.68));
+}
+
+.capture-mode-bar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mode-switcher {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  flex: 1 1 auto;
+  padding: 5px;
+  border-radius: 18px;
+  background: rgba(30, 27, 24, 0.06);
+}
+
+.mode-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-height: 54px;
+  padding: 8px 13px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  box-shadow: none;
+}
+
+.mode-option small {
+  font-size: 11px;
+  opacity: 0.78;
+}
+
+.mode-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  box-shadow: 0 7px 16px rgba(30, 27, 24, 0.08);
+}
+
+.manual-send-button {
+  flex: 0 0 auto;
+  min-width: 152px;
+  border-radius: 18px;
+  font-weight: 700;
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.capture-mode-hint {
+  margin: 2px 6px 9px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.composer-shell textarea {
+  display: block;
+}
+
 label,
 .hint,
 .meta-line {
@@ -259,6 +338,16 @@ button {
 button:hover {
   transform: translateY(-1px);
   opacity: 0.92;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .status-chip {
@@ -454,6 +543,25 @@ code {
 
   .mobile-toolbar #save-state {
     margin-left: 0;
+  }
+
+  .capture-mode-bar {
+    flex-direction: column;
+  }
+
+  .mode-option {
+    width: auto;
+    min-height: 58px;
+    padding: 8px 10px;
+  }
+
+  .manual-send-button {
+    width: 100%;
+    min-height: 54px;
+  }
+
+  .capture-mode-hint {
+    margin: 3px 4px 9px;
   }
 
   #mobile-editor {

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 
@@ -23,7 +23,8 @@ STATIC_ROOT = APP_ROOT / "static"
 ARCHIVE_IDLE_SECONDS = float(os.environ.get("ARCHIVE_IDLE_SECONDS", "2.0"))
 CLAIM_TTL_SECONDS = float(os.environ.get("CLAIM_TTL_SECONDS", "45.0"))
 MAX_HISTORY_ITEMS = 50
-THEME_OPTIONS = {"warm", "green", "blue", "rose", "slate"}
+CAPTURE_MODES = {"auto", "manual"}
+THEMES = {"warm", "green", "blue", "rose", "slate"}
 
 
 def utc_now_iso() -> str:
@@ -55,10 +56,17 @@ def parse_claim_ttl_seconds(raw_value: str) -> float:
     return value
 
 
+def parse_capture_mode(raw_value: str) -> str:
+    value = (raw_value or "").strip().lower()
+    if value not in CAPTURE_MODES:
+        raise ValueError("capture mode must be auto or manual")
+    return value
+
+
 def parse_theme(raw_value: str) -> str:
-    value = (raw_value or "").strip()
-    if value not in THEME_OPTIONS:
-        raise ValueError("theme must be one of warm, green, blue, rose, slate")
+    value = (raw_value or "").strip().lower()
+    if value not in THEMES:
+        raise ValueError("theme is not supported")
     return value
 
 
@@ -107,6 +115,7 @@ class RoomState:
     updated_at: str = ""
     source: str = ""
     archive_idle_seconds: float = ARCHIVE_IDLE_SECONDS
+    capture_mode: str = "auto"
     theme: str = ""
     claims: Dict[str, RoleClaim] = field(default_factory=dict)
     history: List[ArchiveEntry] = field(default_factory=list)
@@ -120,6 +129,7 @@ class RoomState:
             "source": self.source,
             "settings": {
                 "archive_idle_seconds": self.archive_idle_seconds,
+                "capture_mode": self.capture_mode,
                 "theme": self.theme,
             },
             "claims": {role: claim.payload() for role, claim in self.claims.items()},
@@ -145,6 +155,7 @@ class RoomState:
             updated_at=self.updated_at,
             source=self.source,
             archive_idle_seconds=self.archive_idle_seconds,
+            capture_mode=self.capture_mode,
             theme=self.theme,
             claims={
                 role: RoleClaim(
@@ -179,6 +190,7 @@ class RoomStore:
         self._rooms: Dict[str, RoomState] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._archive_timers: Dict[str, threading.Timer] = {}
+        self._archive_generations: Dict[str, int] = {}
         self._archive_ids: Dict[str, int] = {}
         self._default_archive_idle_seconds = archive_idle_seconds
         self._claim_ttl_seconds = claim_ttl_seconds
@@ -196,28 +208,34 @@ class RoomStore:
             self._purge_expired_claims(room)
             return room.clone()
 
-    def update(self, room_id: str, text: str, source: str) -> RoomState:
+    def update(
+        self,
+        room_id: str,
+        text: str,
+        source: str,
+        capture_mode: Optional[str] = None,
+    ) -> RoomState:
+        timer: Optional[threading.Timer] = None
         with self._lock:
             room = self._ensure_room(room_id)
             self._purge_expired_claims(room)
-            previous_timer = self._archive_timers.pop(room_id, None)
-            if previous_timer is not None:
-                previous_timer.cancel()
+            generation = self._invalidate_archive_timer_locked(room_id)
             room.text = text
             room.source = source
+            if capture_mode is not None:
+                room.capture_mode = capture_mode
             room.version += 1
             room.updated_at = utc_now_iso()
             version = room.version
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
-            timer = threading.Timer(room.archive_idle_seconds, self._archive_if_idle, args=(room_id, version))
-            timer.daemon = True
-            self._archive_timers[room_id] = timer
+            timer = self._new_archive_timer_locked(room, version, generation)
 
         for subscriber in subscribers:
             subscriber.put(payload)
 
-        timer.start()
+        if timer is not None:
+            timer.start()
         return room.clone()
 
     def subscribe(self, room_id: str) -> queue.Queue:
@@ -236,21 +254,84 @@ class RoomStore:
             if not watchers:
                 self._subscribers.pop(room_id, None)
 
-    def update_settings(self, room_id: str, archive_idle_seconds: float | None = None, theme: str | None = None) -> RoomState:
+    def update_settings(
+        self,
+        room_id: str,
+        archive_idle_seconds: Optional[float] = None,
+        capture_mode: Optional[str] = None,
+        theme: Optional[str] = None,
+    ) -> RoomState:
+        timer: Optional[threading.Timer] = None
         with self._lock:
             room = self._ensure_room(room_id)
             self._purge_expired_claims(room)
+            affects_archive_timer = archive_idle_seconds is not None or capture_mode is not None
+            generation = self._archive_generations.get(room_id, 0)
+            if affects_archive_timer:
+                generation = self._invalidate_archive_timer_locked(room_id)
             if archive_idle_seconds is not None:
                 room.archive_idle_seconds = archive_idle_seconds
+            if capture_mode is not None:
+                room.capture_mode = capture_mode
             if theme is not None:
                 room.theme = theme
+            payload = room.payload()
+            subscribers = list(self._subscribers.get(room_id, []))
+            if affects_archive_timer:
+                timer = self._new_archive_timer_locked(room, room.version, generation)
+
+        for subscriber in subscribers:
+            subscriber.put(payload)
+
+        if timer is not None:
+            timer.start()
+        return room.clone()
+
+    def capture_now(self, room_id: str, expected_version: Optional[int] = None) -> Dict[str, object]:
+        with self._lock:
+            room = self._ensure_room(room_id)
+            self._purge_expired_claims(room)
+
+            if expected_version is not None and room.version != expected_version:
+                return {
+                    "ok": False,
+                    "error": "version_conflict",
+                    "expected_version": expected_version,
+                    "actual_version": room.version,
+                    "state": room.payload(),
+                }
+
+            self._invalidate_archive_timer_locked(room_id)
+
+            if not room.text.strip():
+                return {
+                    "ok": False,
+                    "error": "empty_text",
+                    "state": room.payload(),
+                }
+
+            if room.history and room.history[-1].version == room.version:
+                return {
+                    "ok": True,
+                    "archived": False,
+                    "reason": "already_captured",
+                    "archive": room.history[-1].payload(),
+                    "state": room.payload(),
+                }
+
+            archive = self._append_archive_locked(room)
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
 
         for subscriber in subscribers:
             subscriber.put(payload)
 
-        return room.clone()
+        return {
+            "ok": True,
+            "archived": True,
+            "archive": archive.payload(),
+            "state": payload,
+        }
 
     def claim_role(self, room_id: str, role: str, client_id: str, client_label: str) -> Dict[str, object]:
         with self._lock:
@@ -362,10 +443,57 @@ class RoomStore:
         age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
         return age_seconds > self._claim_ttl_seconds
 
-    def _archive_if_idle(self, room_id: str, expected_version: int) -> None:
+    def _invalidate_archive_timer_locked(self, room_id: str) -> int:
+        previous_timer = self._archive_timers.pop(room_id, None)
+        if previous_timer is not None:
+            previous_timer.cancel()
+        generation = self._archive_generations.get(room_id, 0) + 1
+        self._archive_generations[room_id] = generation
+        return generation
+
+    def _new_archive_timer_locked(
+        self,
+        room: RoomState,
+        expected_version: int,
+        expected_generation: int,
+    ) -> Optional[threading.Timer]:
+        if room.capture_mode != "auto" or not room.text.strip():
+            return None
+        if room.history and room.history[-1].version == room.version:
+            return None
+        timer = threading.Timer(
+            room.archive_idle_seconds,
+            self._archive_if_idle,
+            args=(room.room_id, expected_version, expected_generation),
+        )
+        timer.daemon = True
+        self._archive_timers[room.room_id] = timer
+        return timer
+
+    def _append_archive_locked(self, room: RoomState) -> ArchiveEntry:
+        next_archive_id = self._archive_ids.get(room.room_id, 0) + 1
+        self._archive_ids[room.room_id] = next_archive_id
+        archive = ArchiveEntry(
+            archive_id=next_archive_id,
+            text=room.text,
+            chars=len(room.text),
+            source=room.source,
+            version=room.version,
+            archived_at=utc_now_iso(),
+        )
+        room.history.append(archive)
+        room.history = room.history[-MAX_HISTORY_ITEMS:]
+        return archive
+
+    def _archive_if_idle(self, room_id: str, expected_version: int, expected_generation: int) -> None:
         with self._lock:
             room = self._rooms.get(room_id)
-            if room is None or room.version != expected_version:
+            if (
+                room is None
+                or room.version != expected_version
+                or room.capture_mode != "auto"
+                or self._archive_generations.get(room_id) != expected_generation
+            ):
                 return
             self._purge_expired_claims(room)
 
@@ -377,19 +505,7 @@ class RoomStore:
             if room.history and room.history[-1].text == room.text:
                 return
 
-            next_archive_id = self._archive_ids.get(room_id, 0) + 1
-            self._archive_ids[room_id] = next_archive_id
-            room.history.append(
-                ArchiveEntry(
-                    archive_id=next_archive_id,
-                    text=room.text,
-                    chars=len(room.text),
-                    source=room.source,
-                    version=room.version,
-                    archived_at=utc_now_iso(),
-                )
-            )
-            room.history = room.history[-MAX_HISTORY_ITEMS:]
+            self._append_archive_locked(room)
             payload = room.payload()
             subscribers = list(self._subscribers.get(room_id, []))
 
@@ -441,6 +557,8 @@ class RelayHandler(BaseHTTPRequestHandler):
                     "local_base_url": f"http://{self.local_ip}:{self.server.server_address[1]}{self.base_path}",
                     "archive_idle_seconds": self.server.archive_idle_seconds,  # type: ignore[attr-defined]
                     "claim_ttl_seconds": self.server.claim_ttl_seconds,  # type: ignore[attr-defined]
+                    "capture_modes": sorted(CAPTURE_MODES),
+                    "themes": sorted(THEMES),
                 }
             )
             return
@@ -497,6 +615,10 @@ class RelayHandler(BaseHTTPRequestHandler):
             self._handle_archive_ack()
             return
 
+        if path == "/api/capture":
+            self._handle_capture()
+            return
+
         if path != "/api/update":
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -506,6 +628,7 @@ class RelayHandler(BaseHTTPRequestHandler):
         room_id = (payload.get("room_id") or self.default_room).strip()
         text = payload.get("text", "")
         source = (payload.get("source") or "unknown").strip()
+        raw_capture_mode = payload.get("capture_mode")
 
         if not room_id:
             self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
@@ -515,42 +638,100 @@ class RelayHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "text must be a string"}, status=HTTPStatus.BAD_REQUEST)
             return
 
-        room = self.store.update(room_id=room_id, text=text, source=source)
+        capture_mode: Optional[str] = None
+        if raw_capture_mode is not None:
+            try:
+                capture_mode = parse_capture_mode(str(raw_capture_mode))
+            except (TypeError, ValueError):
+                self._send_json({"error": "capture_mode must be auto or manual"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+        room = self.store.update(
+            room_id=room_id,
+            text=text,
+            source=source,
+            capture_mode=capture_mode,
+        )
         self._send_json(room.payload(), status=HTTPStatus.CREATED)
 
     def _handle_settings_update(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(content_length) or b"{}")
         room_id = (payload.get("room_id") or self.default_room).strip()
-        raw_archive_idle_seconds = payload.get("archive_idle_seconds")
-        raw_theme = payload.get("theme")
+        has_archive_idle_seconds = "archive_idle_seconds" in payload
+        has_capture_mode = "capture_mode" in payload
+        has_theme = "theme" in payload
 
         if not room_id:
             self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
             return
 
-        archive_idle_seconds = None
-        theme = None
-        if raw_archive_idle_seconds is not None:
+        if not has_archive_idle_seconds and not has_capture_mode and not has_theme:
+            self._send_json(
+                {"error": "archive_idle_seconds, capture_mode, or theme is required"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        archive_idle_seconds: Optional[float] = None
+        if has_archive_idle_seconds:
             try:
-                archive_idle_seconds = parse_archive_idle_seconds(str(raw_archive_idle_seconds))
+                archive_idle_seconds = parse_archive_idle_seconds(str(payload.get("archive_idle_seconds")))
             except (TypeError, ValueError):
                 self._send_json({"error": "archive_idle_seconds must be a number >= 0.5"}, status=HTTPStatus.BAD_REQUEST)
                 return
 
-        if raw_theme is not None:
+        capture_mode: Optional[str] = None
+        if has_capture_mode:
             try:
-                theme = parse_theme(str(raw_theme))
-            except ValueError:
-                self._send_json({"error": "theme must be one of warm, green, blue, rose, slate"}, status=HTTPStatus.BAD_REQUEST)
+                capture_mode = parse_capture_mode(str(payload.get("capture_mode")))
+            except (TypeError, ValueError):
+                self._send_json({"error": "capture_mode must be auto or manual"}, status=HTTPStatus.BAD_REQUEST)
                 return
 
-        if archive_idle_seconds is None and theme is None:
-            self._send_json({"error": "settings update requires archive_idle_seconds or theme"}, status=HTTPStatus.BAD_REQUEST)
+        theme: Optional[str] = None
+        if has_theme:
+            try:
+                theme = parse_theme(str(payload.get("theme")))
+            except (TypeError, ValueError):
+                self._send_json({"error": "theme is not supported"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+        room = self.store.update_settings(
+            room_id=room_id,
+            archive_idle_seconds=archive_idle_seconds,
+            capture_mode=capture_mode,
+            theme=theme,
+        )
+        self._send_json(room.payload(), status=HTTPStatus.OK)
+
+    def _handle_capture(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length) or b"{}")
+        room_id = (payload.get("room_id") or self.default_room).strip()
+
+        if not room_id:
+            self._send_json({"error": "room_id is required"}, status=HTTPStatus.BAD_REQUEST)
             return
 
-        room = self.store.update_settings(room_id=room_id, archive_idle_seconds=archive_idle_seconds, theme=theme)
-        self._send_json(room.payload(), status=HTTPStatus.OK)
+        expected_version: Optional[int] = None
+        if payload.get("expected_version") is not None:
+            try:
+                expected_version = int(payload.get("expected_version"))
+            except (TypeError, ValueError):
+                self._send_json({"error": "expected_version must be an integer"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+        result = self.store.capture_now(room_id=room_id, expected_version=expected_version)
+        if result.get("ok"):
+            status = HTTPStatus.OK
+        elif result.get("error") == "version_conflict":
+            status = HTTPStatus.CONFLICT
+        elif result.get("error") == "empty_text":
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.BAD_REQUEST
+        self._send_json(result, status=status)
 
     def _handle_claim(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0"))

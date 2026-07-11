@@ -61,9 +61,16 @@ Risky optimization target:
 
 ## Current Transfer Strategy
 
-The mobile page sends a full draft snapshot after a short browser debounce. The relay pushes every draft version to SSE subscribers and resets the archive timer each time.
+The mobile page sends a full draft snapshot after a short browser debounce. The relay pushes every draft version to SSE subscribers in both capture modes.
 
-After `archive_idle_seconds` of no new updates, the relay writes one stable archive entry. The macOS helper uses `trigger=archive`, so it should only paste archive entries, not every live draft.
+- In `capture_mode=auto` (`⚡ 顺口模式`), every draft resets the archive timer. After `archive_idle_seconds` of no new updates, the relay writes one stable archive entry.
+- In `capture_mode=manual` (`🌿 换气模式`), draft updates never start an archive timer. `POST /api/capture` writes the current version immediately after the phone user presses `说完了，发送`.
+
+The macOS helper remains unchanged and uses `trigger=archive`, so both modes converge on the same archive -> helper -> paste -> acknowledgement path.
+
+The room state is the capture-mode source of truth. Switching modes is sent atomically with the latest mobile draft. Switching from auto to manual cancels any pending archive timer; switching back to auto starts a fresh quiet-window timer for the current draft. A relay restart defaults rooms back to `auto`.
+
+The relay keeps versions and archive ids in memory, so a restart resets both sequences. The helper detects a version rollback, clears its old archive cursor and stale pending acknowledgements, and can consume fresh archive ids from the restarted relay without requiring a manual helper restart.
 
 The PC web page should treat live draft text as preview-only. Its main output should show the latest archive entry; otherwise long voice input will visibly grow, shrink, and regrow as the mobile IME revises intermediate text.
 
