@@ -2,7 +2,7 @@
 
 Turn phone-side text input into desktop text insertion.
 
-`Doubao Input Sync` is a tiny local relay that lets you type or paste a long block of text on your phone, either send it automatically after a quiet window or pause for as long as you need before sending manually, and optionally auto-paste the final text into the desktop app that currently owns the cursor.
+`Doubao Input Sync` is a tiny local relay that lets you type or paste a long block of text on your phone, either send it automatically after a quiet window or pause for as long as you need before sending manually, and optionally auto-paste the final text into the macOS or Windows app that currently owns the cursor.
 
 This is an unofficial utility and is not affiliated with Doubao or its input method product team.
 
@@ -17,7 +17,7 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 - phone input area
 - local relay server
 - desktop monitor page
-- optional auto-paste to the current cursor position on macOS
+- optional auto-paste to the current cursor position on macOS or Windows
 
 ## Features
 
@@ -28,7 +28,7 @@ Some mobile-first input experiences are excellent, but the desktop version is mi
 - Strong 1 phone + 1 desktop slot matching per room, with conflict warning
 - Room-level theme colors shared by the phone and desktop pages
 - Desktop history list with per-item copy actions
-- Optional auto-paste to the active desktop input on macOS
+- Optional auto-paste to the active desktop input on macOS or Windows
 - Zero Python dependencies beyond the standard library
 - Temporary public testing via tunnel tools if phone and desktop are not on the same LAN
 - Subtle visual flash when a settled batch is captured and synced
@@ -47,6 +47,9 @@ Local Python relay
 macOS helper
   -> watches latest archive item
   -> copies or pastes into active app
+Windows helper
+  -> watches latest archive item
+  -> writes Unicode clipboard text and can send Ctrl+V to the foreground cursor
 ```
 
 ## Repository Layout
@@ -66,6 +69,9 @@ scripts/
   start_tmux_helper.sh
   stop_tmux_helper.sh
   mac_paste_helper.py
+  windows_paste_helper.py
+  run_windows_clipboard_helper.ps1
+  run_windows_paste_helper.ps1
   smoke_test.py
 docs/
   REMOTE_TAILSCALE_RELAY.md
@@ -106,15 +112,25 @@ http://127.0.0.1:18766/pc/doubao
 
 ### 4. Optional: auto-paste into the current cursor position
 
+macOS:
+
 ```bash
 ./scripts/run_autopaste_local.sh
 ```
 
-This will:
+Windows PowerShell:
 
-- start the relay if it is not already running
-- watch the latest archived snapshot
-- paste it into the currently focused desktop input on macOS
+```powershell
+.\scripts\run_windows_paste_helper.ps1
+```
+
+Both commands watch the latest archived snapshot and paste it into the
+currently focused desktop input. The macOS wrapper can start its local relay;
+the Windows runner connects to the configured relay.
+
+The Windows helper defaults to the public relay and the isolated
+`doubao-win-test` room. Keep the intended input focused when the archive
+arrives, and do not run clipboard and paste helpers for the same room at once.
 
 ## Choose An Input Rhythm
 
@@ -299,7 +315,8 @@ No build step is required.
 Useful checks:
 
 ```bash
-python3 -m py_compile app/server.py scripts/mac_paste_helper.py scripts/smoke_test.py
+python3 -m py_compile app/server.py scripts/mac_paste_helper.py scripts/windows_paste_helper.py scripts/smoke_test.py
+python3 -m unittest tests.test_windows_paste_helper -v
 node --check app/static/client.js
 python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smoke.json
 python3 scripts/smoke_test.py --room-id smoke-room --base-path /doubao --output-json /tmp/doubao-smoke-subpath.json

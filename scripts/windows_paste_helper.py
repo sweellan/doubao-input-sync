@@ -220,6 +220,39 @@ def archive_acknowledged(payload: dict, archive_id: int, action: str) -> bool:
     return False
 
 
+def archive_marker(archive: dict) -> tuple[int, str, int] | None:
+    """Identify an archive across SSE reconnects and relay counter resets."""
+    archive_id = int(archive.get("archive_id") or 0)
+    archived_at = str(archive.get("archived_at") or "")
+    version = int(archive.get("version") or 0)
+    if archived_at or version:
+        return archive_id, archived_at, version
+    return None
+
+
+def seed_archive_state(state: dict, archive: dict) -> None:
+    state["last_archive_id"] = int(archive.get("archive_id") or 0)
+    state["last_archive_marker"] = archive_marker(archive)
+
+
+def is_new_archive(state: dict, archive: dict) -> bool:
+    archive_id = int(archive.get("archive_id") or 0)
+    marker = archive_marker(archive)
+
+    if marker is not None:
+        if marker == state["last_archive_marker"]:
+            return False
+    elif archive_id <= state["last_archive_id"]:
+        # Legacy relay payloads without archived_at/version can only use the
+        # monotonic counter. Current payloads use the marker above, which also
+        # survives an in-memory relay restart that resets archive_id to 1.
+        return False
+
+    state["last_archive_id"] = archive_id
+    state["last_archive_marker"] = marker
+    return True
+
+
 def parse_sse_event(lines: list[str]) -> dict | None:
     event_name = ""
     data_lines: list[str] = []
@@ -488,7 +521,7 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
     if args.skip_existing and not state["startup_seeded"]:
         state["last_version"] = max(state["last_version"], version)
         if latest_archive:
-            state["last_archive_id"] = max(state["last_archive_id"], latest_archive.get("archive_id", 0))
+            seed_archive_state(state, latest_archive)
         state["startup_seeded"] = True
         return False
 
@@ -497,10 +530,9 @@ def process_payload(args: argparse.Namespace, payload: dict, state: dict) -> boo
             return False
 
         archive_id = latest_archive.get("archive_id", 0)
-        if archive_id <= state["last_archive_id"]:
+        if not is_new_archive(state, latest_archive):
             return False
 
-        state["last_archive_id"] = archive_id
         text = latest_archive.get("text", "")
         trigger_ref = f"archive:{archive_id}"
     else:
@@ -593,6 +625,7 @@ def main() -> int:
     state = {
         "last_version": -1,
         "last_archive_id": -1,
+        "last_archive_marker": None,
         "applied_updates": 0,
         "startup_seeded": False,
         "curl_resolve": curl_resolve,

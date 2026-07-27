@@ -2,7 +2,7 @@
 
 把手机端输入，变成桌面端可接收的文本。
 
-`Doubao Input Sync` 是一个很轻量的本地桥接工具：你可以在手机浏览器里输入或粘贴一大段文字，既可以停顿后自动发送，也可以打开“换气模式”，等完整说完再手动发送；如果你愿意，还可以直接把最终文本自动粘贴到 macOS 当前光标所在的位置。
+`Doubao Input Sync` 是一个很轻量的本地桥接工具：你可以在手机浏览器里输入或粘贴一大段文字，既可以停顿后自动发送，也可以打开“换气模式”，等完整说完再手动发送；如果你愿意，还可以直接把最终文本自动粘贴到 macOS 或 Windows 当前光标所在的位置。
 
 这是一个非官方工具，只负责桥接输入结果，不隶属于豆包或其输入法产品团队。
 
@@ -17,7 +17,7 @@ English documentation: [README.md](README.md)
 - 手机端固定输入区
 - 本地 relay server
 - 桌面端监看页
-- 可选的 macOS 自动粘贴 helper
+- 可选的 macOS / Windows 自动粘贴 helper
 
 ## 功能特点
 
@@ -28,7 +28,7 @@ English documentation: [README.md](README.md)
 - 同一个房间里强约束为 `1 个手机位 + 1 个 PC 位`，冲突时会提示
 - 同一 room 的手机端和 PC 端同步页面底色，便于区分不同电脑
 - 桌面端保留历史列表，每条都可单独复制
-- 可选自动粘贴到当前激活输入框
+- 可选在 macOS / Windows 自动粘贴到当前激活输入框
 - Python 端只用标准库，没有额外依赖
 - 手机不在局域网时，可临时通过 tunnel 做公网测试
 - 当一批稳定文本被捕捉并同步后，界面会轻微闪一下做提示
@@ -47,6 +47,9 @@ English documentation: [README.md](README.md)
 macOS helper
   -> 监听最新归档项
   -> 复制或粘贴到当前应用
+Windows helper
+  -> 监听最新归档项
+  -> 写入 Unicode 剪贴板，并可向当前前台光标发送 Ctrl+V
 ```
 
 ## 目录结构
@@ -66,6 +69,9 @@ scripts/
   start_tmux_helper.sh
   stop_tmux_helper.sh
   mac_paste_helper.py
+  windows_paste_helper.py
+  run_windows_clipboard_helper.ps1
+  run_windows_paste_helper.ps1
   smoke_test.py
 docs/
   REMOTE_TAILSCALE_RELAY.md
@@ -106,15 +112,23 @@ http://127.0.0.1:18766/pc/doubao
 
 ### 4. 可选：直接自动粘贴到当前光标位置
 
+macOS：
+
 ```bash
 ./scripts/run_autopaste_local.sh
 ```
 
-这条命令会：
+Windows PowerShell：
 
-- 如果本地 relay 没起，就先帮你拉起
-- 监听最新归档结果
-- 在 macOS 上把这条稳定文本自动粘贴到当前焦点输入框
+```powershell
+.\scripts\run_windows_paste_helper.ps1
+```
+
+两端命令都会监听最新归档结果，并把稳定文本自动粘贴到当前焦点输入框。
+macOS 包装脚本可以按需拉起本地 relay；Windows runner 连接配置好的 relay。
+
+Windows helper 默认连接公共 relay 的独立测试房间 `doubao-win-test`。
+归档到达时要让目标输入框保持焦点；同一房间不要同时运行 clipboard 和 paste 两个 helper。
 
 ## 选择你的输入节奏
 
@@ -292,7 +306,7 @@ tmux attach -t doubao-paste
 
 ## 当前限制
 
-- 直接自动输入目前主要面向 macOS
+- Windows 直接粘贴依赖前台焦点和 `WScript.Shell.SendKeys`，目标输入框失去焦点时不会自动找回
 - 历史列表目前只在内存里，不会持久化到磁盘
 - 还没有认证层
 - 不适合直接拿去做多人生产环境服务
@@ -304,7 +318,8 @@ tmux attach -t doubao-paste
 常用检查命令：
 
 ```bash
-python3 -m py_compile app/server.py scripts/mac_paste_helper.py scripts/smoke_test.py
+python3 -m py_compile app/server.py scripts/mac_paste_helper.py scripts/windows_paste_helper.py scripts/smoke_test.py
+python3 -m unittest tests.test_windows_paste_helper -v
 node --check app/static/client.js
 python3 scripts/smoke_test.py --room-id smoke-room --output-json /tmp/doubao-smoke.json
 python3 scripts/smoke_test.py --room-id smoke-room --base-path /doubao --output-json /tmp/doubao-smoke-subpath.json

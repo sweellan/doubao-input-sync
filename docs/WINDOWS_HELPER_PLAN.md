@@ -22,6 +22,23 @@ Prerequisite: Git for Windows must be installed and available as `git`.
 
 Use one phone as the input surface, then quickly send settled text to one or more computers.
 
+## Current Status
+
+Windows clipboard and foreground-paste helpers are implemented:
+
+```powershell
+.\scripts\run_windows_clipboard_helper.ps1
+.\scripts\run_windows_paste_helper.ps1
+```
+
+The paste helper writes the stable archive to the Unicode clipboard and then
+sends `Ctrl+V` to the window that owns the foreground cursor at delivery time.
+Keep the intended input focused. The helper skips the archive that already
+exists at startup and acts on new stable archives by default.
+
+Run only one helper for a room. Clipboard and paste helpers must not consume
+the same room concurrently.
+
 The current system already has the shared relay and web pages:
 
 - phone page: input text on mobile
@@ -60,7 +77,7 @@ On the phone, open or bookmark different mobile URLs for different rooms. On eac
 
 This avoids mixing destinations. It also keeps each computer's paste history and acknowledgement state independent.
 
-## Windows Minimal Version
+## Windows Clipboard Version
 
 Start with clipboard-only delivery. This is safer and should work before we attempt foreground paste.
 
@@ -94,6 +111,10 @@ Possible approaches:
 - AutoHotkey v2: most practical for reliable `Ctrl+V` into the active window.
 - PowerShell COM: `New-Object -ComObject WScript.Shell` then `SendKeys('^v')`; simpler but more fragile.
 - pywinauto: useful later if app-specific targeting becomes necessary.
+
+The current implementation uses PowerShell COM and `WScript.Shell.SendKeys`.
+It requires no additional package but depends on the correct input remaining
+focused when the archive arrives.
 
 Expected behavior:
 
