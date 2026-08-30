@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 
 
 HELPER_USER_AGENT = "doubao-input-sync-windows-helper/1.0"
+_CLOUDFLARE_ACCESS_HEADERS: dict[str, str] | None = None
 
 
 def normalize_payload(payload: dict) -> dict:
@@ -28,10 +29,50 @@ def normalize_payload(payload: dict) -> dict:
     return payload
 
 
+def cloudflare_access_headers() -> dict[str, str]:
+    global _CLOUDFLARE_ACCESS_HEADERS
+    if _CLOUDFLARE_ACCESS_HEADERS is not None:
+        return dict(_CLOUDFLARE_ACCESS_HEADERS)
+
+    client_id = os.environ.pop("CF_ACCESS_CLIENT_ID", "").strip()
+    client_secret = os.environ.pop("CF_ACCESS_CLIENT_SECRET", "").strip()
+    if bool(client_id) != bool(client_secret):
+        raise RuntimeError("CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET must be configured together")
+    if not client_id:
+        _CLOUDFLARE_ACCESS_HEADERS = {}
+        return {}
+    _CLOUDFLARE_ACCESS_HEADERS = {
+        "CF-Access-Client-Id": client_id,
+        "CF-Access-Client-Secret": client_secret,
+    }
+    return dict(_CLOUDFLARE_ACCESS_HEADERS)
+
+
+def curl_access_config(headers: dict[str, str]) -> str:
+    lines: list[str] = []
+    for name, value in headers.items():
+        if "\n" in value or "\r" in value:
+            raise RuntimeError(f"{name} contains an invalid newline")
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'header = "{name}: {escaped}"')
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def redirect_error(return_code: int) -> str | None:
+    if return_code == 47:
+        return "authentication required or unexpected redirect from relay"
+    return None
+
+
 def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
+    access_headers = cloudflare_access_headers()
+    access_config = curl_access_config(access_headers)
     curl_args = [
         "curl",
         "-fsS",
+        "--location",
+        "--max-redirs",
+        "0",
         "--http1.1",
         "--max-time",
         str(request_timeout_seconds),
@@ -42,12 +83,19 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
         "-A",
         HELPER_USER_AGENT,
     ]
+    if access_config:
+        curl_args[1:1] = ["--config", "-"]
     for resolve_entry in curl_resolve:
         curl_args.extend(["--resolve", resolve_entry])
     curl_args.append(url)
 
     try:
-        curl_proc = subprocess.run(curl_args, capture_output=True, check=False)
+        curl_proc = subprocess.run(
+            curl_args,
+            input=access_config.encode("utf-8") if access_config else None,
+            capture_output=True,
+            check=False,
+        )
     except FileNotFoundError:
         curl_proc = None
 
@@ -58,7 +106,9 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise URLError(f"curl returned invalid JSON: {exc}") from exc
 
-        reason = curl_proc.stderr.decode("utf-8", errors="replace").strip() or f"curl exited {curl_proc.returncode}"
+        reason = redirect_error(curl_proc.returncode)
+        reason = reason or curl_proc.stderr.decode("utf-8", errors="replace").strip()
+        reason = reason or f"curl exited {curl_proc.returncode}"
         if curl_proc.returncode == 22 and "404" in reason:
             raise HTTPError(url, 404, reason, hdrs=None, fp=None)
         raise URLError(reason)
@@ -68,6 +118,7 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
         headers={
             "ngrok-skip-browser-warning": "1",
             "User-Agent": HELPER_USER_AGENT,
+            **access_headers,
         },
     )
     try:
@@ -79,9 +130,14 @@ def fetch_json(url: str, request_timeout_seconds: float, curl_resolve: list[str]
 
 def post_json(url: str, payload: dict, request_timeout_seconds: float, curl_resolve: list[str]) -> dict:
     body_text = json.dumps(payload, ensure_ascii=False)
+    access_headers = cloudflare_access_headers()
+    access_config = curl_access_config(access_headers)
     curl_args = [
         "curl",
         "-fsS",
+        "--location",
+        "--max-redirs",
+        "0",
         "--http1.1",
         "--max-time",
         str(request_timeout_seconds),
@@ -98,12 +154,19 @@ def post_json(url: str, payload: dict, request_timeout_seconds: float, curl_reso
         "--data-binary",
         body_text,
     ]
+    if access_config:
+        curl_args[1:1] = ["--config", "-"]
     for resolve_entry in curl_resolve:
         curl_args.extend(["--resolve", resolve_entry])
     curl_args.append(url)
 
     try:
-        curl_proc = subprocess.run(curl_args, capture_output=True, check=False)
+        curl_proc = subprocess.run(
+            curl_args,
+            input=access_config.encode("utf-8") if access_config else None,
+            capture_output=True,
+            check=False,
+        )
     except FileNotFoundError:
         curl_proc = None
 
@@ -114,7 +177,9 @@ def post_json(url: str, payload: dict, request_timeout_seconds: float, curl_reso
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise URLError(f"curl returned invalid JSON: {exc}") from exc
 
-        reason = curl_proc.stderr.decode("utf-8", errors="replace").strip() or f"curl exited {curl_proc.returncode}"
+        reason = redirect_error(curl_proc.returncode)
+        reason = reason or curl_proc.stderr.decode("utf-8", errors="replace").strip()
+        reason = reason or f"curl exited {curl_proc.returncode}"
         if curl_proc.returncode == 22 and "404" in reason:
             raise HTTPError(url, 404, reason, hdrs=None, fp=None)
         raise URLError(reason)
@@ -126,6 +191,7 @@ def post_json(url: str, payload: dict, request_timeout_seconds: float, curl_reso
             "ngrok-skip-browser-warning": "1",
             "User-Agent": HELPER_USER_AGENT,
             "Content-Type": "application/json",
+            **access_headers,
         },
         method="POST",
     )
@@ -281,10 +347,14 @@ def stream_payloads(
 ) -> Iterator[dict]:
     query = urlencode({"room_id": room_id})
     stream_url = f"{server_url.rstrip('/')}/api/stream?{query}"
+    access_config = curl_access_config(cloudflare_access_headers())
     curl_args = [
         "curl",
         "-fsS",
         "-N",
+        "--location",
+        "--max-redirs",
+        "0",
         "--http1.1",
         "--max-time",
         str(stream_max_time_seconds),
@@ -295,6 +365,8 @@ def stream_payloads(
         "-A",
         HELPER_USER_AGENT,
     ]
+    if access_config:
+        curl_args[1:1] = ["--config", "-"]
     for resolve_entry in curl_resolve:
         curl_args.extend(["--resolve", resolve_entry])
     curl_args.append(stream_url)
@@ -302,6 +374,7 @@ def stream_payloads(
     try:
         proc = subprocess.Popen(
             curl_args,
+            stdin=subprocess.PIPE if access_config else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -311,6 +384,13 @@ def stream_payloads(
         )
     except FileNotFoundError as exc:
         raise URLError("curl executable was not found") from exc
+
+    if access_config and proc.stdin is not None:
+        try:
+            proc.stdin.write(access_config)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
 
     assert proc.stdout is not None
     lines: list[str] = []
@@ -333,7 +413,8 @@ def stream_payloads(
 
     stderr = proc.stderr.read() if proc.stderr is not None else ""
     return_code = proc.wait()
-    reason = stderr.strip() or f"stream exited with code {return_code}"
+    reason = redirect_error(return_code)
+    reason = reason or stderr.strip() or f"stream exited with code {return_code}"
     raise URLError(reason)
 
 
@@ -659,14 +740,20 @@ def main() -> int:
         except (URLError, socket.timeout) as exc:
             connection_refused_count += 1
             reason = str(getattr(exc, "reason", exc))
-            record = {"status": "retrying", "reason": reason, "server_url": args.server_url}
+            retry_delay_seconds = 30.0 if "authentication required" in reason else args.interval_seconds
+            record = {
+                "status": "retrying",
+                "reason": reason,
+                "server_url": args.server_url,
+                "retry_delay_seconds": retry_delay_seconds,
+            }
             if connection_refused_count == 1:
                 record["hint"] = (
                     "relay server is not reachable; start it from "
                     f"{project_root} or set SERVER_URL to the public relay"
                 )
             print(json.dumps(record, ensure_ascii=False), flush=True)
-            time.sleep(args.interval_seconds)
+            time.sleep(retry_delay_seconds)
 
 
 if __name__ == "__main__":

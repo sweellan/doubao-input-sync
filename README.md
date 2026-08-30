@@ -305,7 +305,7 @@ Security notes:
 
 - macOS-focused for direct cursor insertion
 - in-memory history only
-- no authentication layer yet
+- no built-in application authentication; the hosted OpenClaw route relies on external Cloudflare Access policies and per-device service tokens
 - not intended for multi-user production use
 
 ## Development

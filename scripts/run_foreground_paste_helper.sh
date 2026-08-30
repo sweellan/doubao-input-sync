@@ -13,6 +13,16 @@ INTERVAL_SECONDS="${INTERVAL_SECONDS:-0.25}"
 CURL_RESOLVE="${CURL_RESOLVE:-openclaw.ciaobella.cc:443:172.67.208.237}"
 TRANSPORT="${TRANSPORT:-stream}"
 
+if [[ "$SERVER_URL" == https://openclaw.ciaobella.cc/doubao* ]]; then
+  CF_ACCESS_CLIENT_ID="${CF_ACCESS_CLIENT_ID:-$(/usr/bin/security find-generic-password -a macbook -s doubao-input-sync-cloudflare-client-id -w)}"
+  CF_ACCESS_CLIENT_SECRET="${CF_ACCESS_CLIENT_SECRET:-$(/usr/bin/security find-generic-password -a macbook -s doubao-input-sync-cloudflare-client-secret -w)}"
+  if [[ -z "$CF_ACCESS_CLIENT_ID" || -z "$CF_ACCESS_CLIENT_SECRET" ]]; then
+    echo "Missing Cloudflare Access credentials in macOS Keychain" >&2
+    exit 1
+  fi
+  export CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
+fi
+
 cd "$PROJECT_ROOT"
 
 echo "Starting foreground paste helper"
@@ -25,6 +35,9 @@ echo "interval_seconds=${INTERVAL_SECONDS}"
 echo "curl_resolve=${CURL_RESOLVE}"
 echo "transport=${TRANSPORT}"
 echo "mode=paste"
+if [[ -n "${CF_ACCESS_CLIENT_ID:-}" ]]; then
+  echo "cloudflare_access=service_token"
+fi
 
 helper_args=(
   --server-url "$SERVER_URL" \

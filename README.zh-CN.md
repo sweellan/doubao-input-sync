@@ -308,7 +308,7 @@ tmux attach -t doubao-paste
 
 - Windows 直接粘贴依赖前台焦点和 `WScript.Shell.SendKeys`，目标输入框失去焦点时不会自动找回
 - 历史列表目前只在内存里，不会持久化到磁盘
-- 还没有认证层
+- 应用本身还没有内建认证；当前托管的 OpenClaw 公网入口依赖外部 Cloudflare Access 策略和按设备独立的 Service Token
 - 不适合直接拿去做多人生产环境服务
 
 ## 开发检查

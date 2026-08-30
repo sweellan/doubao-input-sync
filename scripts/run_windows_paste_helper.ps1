@@ -14,6 +14,11 @@ $PasteDelaySeconds = if ($env:PASTE_DELAY_SECONDS) { $env:PASTE_DELAY_SECONDS } 
 $CurlResolve = if ($env:CURL_RESOLVE) { $env:CURL_RESOLVE } else { "openclaw.ciaobella.cc:443:172.67.208.237" }
 $Python = if ($env:PYTHON) { $env:PYTHON } else { "python" }
 
+if ($ServerUrl.StartsWith("https://openclaw.ciaobella.cc/doubao") -and
+    (-not $env:CF_ACCESS_CLIENT_ID -or -not $env:CF_ACCESS_CLIENT_SECRET)) {
+    throw "Missing CF_ACCESS_CLIENT_ID/CF_ACCESS_CLIENT_SECRET. Load the Windows service token from Credential Manager or a DPAPI-protected local secret before starting the helper."
+}
+
 Set-Location $ProjectRoot
 
 Write-Host "Starting Windows foreground paste helper"
@@ -27,6 +32,9 @@ Write-Host "paste_delay_seconds=$PasteDelaySeconds"
 Write-Host "curl_resolve=$CurlResolve"
 Write-Host "transport=$Transport"
 Write-Host "mode=paste"
+if ($env:CF_ACCESS_CLIENT_ID) {
+    Write-Host "cloudflare_access=service_token"
+}
 
 $HelperArgs = @(
     "scripts/windows_paste_helper.py",

@@ -10,6 +10,19 @@ This is the first place to check when Doubao Input Sync needs adjustment.
 - The fixed public relay entry is `https://openclaw.ciaobella.cc/doubao`.
 - The historical private relay entry is `http://100.69.170.35:18765/doubao`; prefer it only when `/doubao/api/ping` and `/doubao/api/helper-state?room_id=doubao` return valid responses.
 
+## Cloudflare Access
+
+The public route is protected by the Cloudflare Access application `openclaw`.
+
+- Human browser access keeps using the existing email/one-time-pin policy `doubao only me`.
+- Mac and Windows helpers use the reusable `doubao helper service auth` policy.
+- Each device has its own one-year service token so it can be audited, rotated, or revoked independently.
+- The Mac token is stored in macOS Keychain under account `macbook` and services `doubao-input-sync-cloudflare-client-id` / `doubao-input-sync-cloudflare-client-secret`.
+- The Windows token must be loaded from Windows Credential Manager or a DPAPI-protected local secret into `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` before starting a Windows helper.
+- Never write service-token values into Git, control-plane JSON, run logs, or command-line arguments.
+
+The Python helpers pass the credentials to curl through stdin configuration and remove the variables from the inherited child-process environment. An anonymous `302` redirect is reported as an authentication error instead of a healthy SSE exit.
+
 ## Current Helper Path
 
 The intended Mac helper is the foreground Terminal paste helper, not the LaunchAgent clipboard helper.
@@ -81,12 +94,10 @@ If a fresh archive exists but `desktop_received_at` remains empty, check the hel
 Public route:
 
 ```bash
-curl -sS --max-time 4 --connect-timeout 2 \
-  --resolve openclaw.ciaobella.cc:443:172.67.208.237 \
-  -H 'ngrok-skip-browser-warning: 1' \
-  -A 'doubao-input-sync-helper/1.0' \
-  'https://openclaw.ciaobella.cc/doubao/api/helper-state?room_id=doubao'
+./scripts/check_foreground_helper_health.sh
 ```
+
+This check reads the Mac token from Keychain and requires a valid JSON room state. A process-only `pgrep` check is not sufficient.
 
 Private Tailscale route:
 
@@ -97,29 +108,20 @@ curl -sS -i --max-time 5 \
   'http://100.69.170.35:18765/doubao/api/ping'
 ```
 
-Room setting check:
-
-```bash
-curl -sS --max-time 4 --connect-timeout 2 \
-  --resolve openclaw.ciaobella.cc:443:172.67.208.237 \
-  -H 'ngrok-skip-browser-warning: 1' \
-  -A 'doubao-input-sync-helper/1.0' \
-  'https://openclaw.ciaobella.cc/doubao/api/state?room_id=doubao' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("settings"))'
-```
-
 ## Restart Helper
 
 If the helper needs to be restarted, prefer the control-plane runner so it keeps using the foreground Terminal permission surface.
 
-Current manual restart pattern:
+Once the old persistent runner has stopped, trigger the job through the already-running dashboard service so that the main control-plane process owns the new run:
 
 ```bash
 cd /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot
-/usr/bin/python3 /Users/yangchao/.codex/skills/codex-desktop-control-plane/scripts/codex_control_plane.py run-once \
+/usr/bin/python3 /Users/yangchao/.codex/skills/codex-desktop-control-plane/scripts/trigger_control_plane_job.py \
   --root /Users/yangchao/Sync/Meituan/Workspace/10_projects/260324_DoubaoInputSync__pilot/__sys/automation/doubao_input_sync_control_plane/runtime \
   --job doubao-foreground-paste-helper
 ```
+
+Do not trigger a second run while the existing job is still running. Resolve the exact run process group and persistent Terminal binding before an intentional restart.
 
 If control-plane says the job is already running but no helper process exists, inspect:
 
