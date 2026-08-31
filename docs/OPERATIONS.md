@@ -131,3 +131,28 @@ sqlite3 __sys/automation/doubao_input_sync_control_plane/runtime/state/control_p
 ```
 
 Only mark a stale run as stopped after verifying the process is gone.
+
+## Login Warmup
+
+The control-plane LaunchAgent keeps the dashboard service alive, but it does not directly start the foreground paste helper. Install the separate one-shot warmup LaunchAgent so a new macOS login waits for the dashboard and then triggers the same formal persistent-Terminal job:
+
+```bash
+./scripts/install_control_plane_warmup_launch_agent.sh
+```
+
+Installed label:
+
+```text
+com.yangchao.codex_desktop_control_plane_doubao_warmup
+```
+
+This LaunchAgent does not run a second clipboard helper and does not contain Cloudflare credentials. It only calls `bootstrap_foreground_helper_via_control_plane.sh`, which:
+
+1. waits for the exact Doubao runtime on `127.0.0.1:18767`;
+2. exits without another trigger when the formal helper is already healthy;
+3. otherwise triggers `doubao-foreground-paste-helper` through `trigger_control_plane_job.py`;
+4. requires the job's process and authenticated API healthchecks to pass.
+
+The formal wrapper remains `run_foreground_paste_helper.sh`, so every fresh helper still reads the `macbook` Cloudflare Access service token from macOS Keychain. No token value is stored in the plist, control-plane JSON, logs, or argv.
+
+The helper intentionally seeds the latest existing archive at startup (`--skip-existing`) to avoid pasting old content after a reboot. Send a new phone archive after the helper is healthy when testing login recovery.
